@@ -42,7 +42,7 @@ srun --wait=0 --no-kill --distribution=block --exclusive=user \
 ${CHUDIS_PATH}/slurmstep_process_chunks.sh "${PROJECT_ID}_phospho_${FIT_VERSION}" $USER \
 "ch-run $IMAGES_PATH/archpc.msglm \
   -t --no-home --unset-env='*PATH' \
-  --set-env=$HOME/projects/adhoc/$PROJECT_ID/archpc.env \
+  --set-env=$HOME/projects/adhoc/$PROJECT_ID/archpc.msglm \
   -b $HOME/projects/adhoc:/projects/adhoc \
   -b $HOME/data:/data \
   -b $HOME/analysis:/analysis \
