@@ -19,8 +19,8 @@ message('Job ', job_name, '(id=',job_chunk,
         " data_version=", data_version, " fit_version=", fit_version,
         " running on ", Sys.info()["nodename"], ")")
 
-#source("~/R/config.R")
-source('/projects/R/config.R')
+source("~/R/config.R")
+#source('/projects/R/config.R')
 source(file.path(base_scripts_path, 'R/misc/setup_base_paths.R'))
 source(file.path(misc_scripts_path, 'setup_project_paths.R'))
 
