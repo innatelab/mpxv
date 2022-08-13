@@ -4,8 +4,8 @@
 ###############################################################################
 
 proj_info = (id = "mpxv",
-             data_ver = "20220809",
-             msfolder = "phospho_20220809",
+             data_ver = "20220812",
+             msfolder = "phospho_20220812",
              ptm_locprob_min = 0.75,
              )
 using Pkg
@@ -35,8 +35,9 @@ msruns_df = CSV.read(joinpath(data_path, "combined", "experimentalDesign.txt"), 
 rename!(msruns_df, :Name=>:rawfile, :Experiment=>:msexperiment, :PTM => :is_ptm, :Fraction => :msfraction)
 msrun_matches = match.(Ref(r"^HFF_(.*)_phos_(\d+)h_(\d)$"), msruns_df.msexperiment)
 msruns_df.treatment = getindex.(msrun_matches, 1);
-msruns_df.time = getindex.(msrun_matches, 2);
-msruns_df.condition = string.(msruns_df.treatment, "_", msruns_df.time);
+msruns_df.treatment = replace.(msruns_df.treatment, "MPX" => "MPXV") #instead of MPX, use the full name MPXV!
+msruns_df.timepoint = getindex.(msrun_matches, 2);
+msruns_df.condition = string.(msruns_df.treatment, "_", msruns_df.timepoint);
 msruns_df.replicate = parse.(Int, getindex.(msrun_matches, 3));
 msruns_df.msexperiment = string.(msruns_df.condition, "_", msruns_df.replicate);
 
@@ -60,8 +61,6 @@ for col in [:lead_protein_acs, :lead_razor_protein_ac, :peptide_protein_acs]
                               Ref(r"CON__(?:[^:;]+):" => "CON__")),
                               Ref(r"CON__Streptavidin" => "CON__P22629"))
 end
-
-
 
 msfasta_path = joinpath(data_path, "fasta")
 proteins_df = let
@@ -109,10 +108,10 @@ pepmodstates_df = innerjoin(pepmodstates_df, pms_ptms_stats_df, on=:pepmodstate_
 ptm2pms2protein_df = innerjoin(ptm2pms_df, peptide2protein_df, on=:peptide_id)
 ptm2pms2protein_df.ptm_pos = ptm2pms2protein_df.peptide_pos .+ ptm2pms2protein_df.ptm_offset
 ptm2protein_df = leftjoin(unique!(select(ptm2pms2protein_df, [:ptm_type, :ptm_AAs, :ptm_AA_seq, :ptm_pos, :protein_ac])),
-                          select(proteins_df, [:protein_ac, :genename, :organism, :is_contaminant], copycols=false),
+                          select(proteins_df, [:protein_ac, :genename, :organism, :is_viral, :is_contaminant], copycols=false),
                           on=:protein_ac)
 ptm2gene_df = PTMExtractor.group_aaobjs(ptm2protein_df, proteins_df,
-                                        seqgroup_col=[:genename, :is_contaminant],
+                                        seqgroup_col=[:genename, :is_viral, :is_contaminant],
                                         seqid_col=:protein_ac, seqrank_col=:protein_ac_isoform,
                                         obj_prefix=:ptm_, objid_col=[:ptm_type, :ptm_pos, :ptm_AA_seq],
                                         force_refseqs=true, verbose=true) #Note: up till now the BioAlginments still hasn't included Alexey's update (seq2aln), please add the package with the git URL https://github.com/BioJulia/BioAlignments.jl.git instead for this part to work!
@@ -122,7 +121,7 @@ ptm2protein_df2 = leftjoin(ptm2protein_df, unique!(select(ptm2gene_df, [:ptm_id,
 @assert nrow(ptm2protein_df)==nrow(ptm2protein_df2)
 ptm2protein_df = ptm2protein_df2
 
-filter(r -> r.ptm_is_reference, ptm2gene_df) |> print
+filter(r -> r.ptm_is_reference && coalesce(r.is_viral, false), ptm2gene_df) |> print
 countmap(filter(r -> r.ptm_is_reference, ptm2gene_df).ptm_type)
 
 ptmn2pms_df = innerjoin(select!(innerjoin(
