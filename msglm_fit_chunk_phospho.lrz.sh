@@ -30,7 +30,7 @@
 module load slurm_setup
 module load charliecloud
 
-IMAGES_PATH=$(realpath $SCRATCH/../ga32kis2/docker4muc)
+IMAGES_PATH=$(realpath $HOME)
 CHUDIS_PATH=$HOME/projects/cool_chunk_dispatcher
 
 PROJECT_ID=mpxv
