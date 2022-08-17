@@ -33,6 +33,28 @@ modelobj_idcol <- paste0(modelobj, "_id")
 quantobj_idcol <- paste0(quantobj, "_id")
 obj_labu_shift <- msdata[[str_c(quantobj, "_mscalib")]]$zShift
 
+contrasts.df <- dplyr::ungroup(msglm_def$contrasts) %>%
+  dplyr::inner_join(tidyr::pivot_wider(dplyr::mutate(as.data.frame.table(msglm_def$metaconditionXcontrast, responseName="w"),
+                                                     side = if_else(w > 0, "lhs", "rhs")) %>% dplyr::filter(w != 0),
+                                       c(contrast), names_from = "side", values_from = "metacondition",
+                                       names_glue = "{.value}_{side}")) %>%
+  dplyr::mutate(offset = 0, offset_prior = 0) %>%
+  dplyr::left_join(dplyr::select(msglm_def$conditions, metacondition_lhs = condition, treatment_lhs = treatment)) %>%
+  dplyr::left_join(dplyr::select(msglm_def$conditions, metacondition_rhs = condition, treatment_rhs = treatment))
+
+object_contrasts_thresholds.df <- dplyr::select(contrasts.df, offset, offset_prior, contrast, contrast_type) %>%
+  dplyr::mutate(
+    p_value_threshold = case_when(contrast_type == "filtering" ~ 1E-2,
+                                  contrast_type == "comparison" ~ 1E-2,
+                                  TRUE ~ NA_real_),
+    median_threshold = case_when(contrast_type == "filtering" ~ pmax(2.0, 2.0 + abs(offset - offset_prior)),
+                                 contrast_type == "comparison" ~ pmax(0.5, 0.25 + abs(offset - offset_prior)),
+                                 TRUE ~ NA_real_),
+    median_max = case_when(contrast_type == "filtering" ~ 12,
+                           contrast_type == "comparison" ~ 6,
+                           TRUE ~ NA_real_)
+  )
+
 #plotting starts from here----
 require(Cairo)
 require(ggrastr)
@@ -45,46 +67,25 @@ source(file.path(misc_scripts_path, 'ggplot_ext.R'))
 source(file.path(misc_scripts_path, 'furrr_utils.R'))
 
 treatment_palette <- c("mock" = "gray", "MPXV" = "#F9CB40")
-hit_palette <- c("non-hit" = "grey", "hit" = "black", "oxidation hit" = "dark grey", "viral hit" = "#F9CB40" )
+hit_palette <- c("non-hit" = "grey", "hit" = "black", "oxidation hit" = "dark grey", "viral hit" = "#F9CB40", "only sig" = "light blue")
 base_font_family <- "Segoe UI Symbol"
 base_plot_path <- file.path(analysis_path, 'plots', str_c(data_info$msfolder, "_", fit_version))
 sel_ci_target <- "average"
 
-contrasts.df <- dplyr::ungroup(msglm_def$contrasts) %>%
-  dplyr::inner_join(tidyr::pivot_wider(dplyr::mutate(as.data.frame.table(msglm_def$metaconditionXcontrast, responseName="w"),
-                                                     side = if_else(w > 0, "lhs", "rhs")) %>% dplyr::filter(w != 0),
-                                       c(contrast), names_from = "side", values_from = "metacondition",
-                                       names_glue = "{.value}_{side}")) %>%
-  dplyr::mutate(offset = 0, offset_prior = 0) %>%
-  dplyr::left_join(dplyr::select(msglm_def$conditions, metacondition_lhs = condition, treatment_lhs = treatment)) %>%
-  dplyr::left_join(dplyr::select(msglm_def$conditions, metacondition_rhs = condition, treatment_rhs = treatment))
-
-object_contrasts_thresholds.df <- dplyr::select(contrasts.df, offset, offset_prior, contrast, contrast_type) %>%
-  dplyr::mutate(
-    p_value_threshold = case_when(contrast_type == "filtering" ~ 1E-3,
-                                  contrast_type == "comparison" ~ 1E-3,
-                                  TRUE ~ NA_real_),
-    median_threshold = case_when(contrast_type == "filtering" ~ pmax(2.0, 2.0 + abs(offset - offset_prior)),
-                                 contrast_type == "comparison" ~ pmax(0.5, 0.25 + abs(offset - offset_prior)),
-                                 TRUE ~ NA_real_),
-    median_max = case_when(contrast_type == "filtering" ~ 12,
-                           contrast_type == "comparison" ~ 6,
-                           TRUE ~ NA_real_)
-  )
 
 #volcano for all contrasts----
-object_contrasts_4show.df <- fit_contrasts$object_conditions %>%
-  dplyr::filter(var %in% c("obj_cond_labu", "obj_cond_labu_replCI")) %>%
-  dplyr::ungroup() %>%
+object_contrasts_4show.df <- object_contrasts.df %>%
   select(-contains("threshold")) %>%
   dplyr::inner_join(object_contrasts_thresholds.df) %>%
   dplyr::mutate(is_signif = (p_value <= p_value_threshold) & (abs(median - offset) >= median_threshold),
-                is_sel = FALSE,
                 is_hit_nomschecks = is_signif & !is_contaminant,
-                is_hit = is_hit_nomschecks,
+                is_hit = is_hit_nomschecks & ((nmsruns_quanted_lhs_max >= 3) | (nmsruns_quanted_rhs_max >= 3)), 
                 hit_type = case_when(is_hit & str_detect(object_label, "Oxidation") ~ "oxidation hit",
                                      is_hit & is_viral ~ "viral hit",
-                                     is_hit ~ "hit", TRUE ~ "non-hit"),
+                                     is_hit ~ "hit", 
+                                     is_hit_nomschecks ~ "only sig",
+                                     TRUE ~ "non-hit"), 
+                is_sel = is_hit_nomschecks,
                 mean_trunc = pmax(-median_max, pmin(median_max, mean - offset)) + offset,
                 median_trunc = pmax(-median_max, pmin(median_max, median - offset)) + offset,
                 truncation = scatter_truncation(median, median_trunc, -log10(p_value), -log10(p_value),
@@ -165,8 +166,8 @@ group_by(object_contrasts_4show.df, ci_target, contrast,
                       plot=p, width=15, height=18, device=cairo_pdf, family=base_font_family) #For windows users only: beware of what font you're using! If it's the first time you use this code, you need to import the fonts with "extrafont" package
              })
 
-#Making timecourse for all proteins. The dots are from the original LFQ values of MQ.----
-sel_objects.df <- dplyr::filter(modelobjs_df, str_detect(gene_name, "RBMX") & ptm_type == "Phospho")  #This is used for debugging
+#Making timecourse for all proteins. The dots are from the original peptide intensity values of MQ.----
+sel_objects.df <- dplyr::filter(modelobjs_df, str_detect(gene_name, "PPP1R7") & ptm_type == "Phospho")  #This is used for debugging
 sel_objects.df <- dplyr::semi_join(modelobjs_df, dplyr::select(fit_stats$objects, object_id), by="object_id")#This is all!
 
 msdata_full$pepmodstates <- dplyr::mutate(msdata_full$pepmodstates,
@@ -191,10 +192,14 @@ dplyr::left_join(sel_objects.df, dplyr::select(msdata_full$ptmngroup_idents, ptm
     sel_obj_contrasts.df <- dplyr::semi_join(dplyr::filter(object_contrasts_4show.df, ci_target == sel_ci_target & str_starts(var, "obj_cond_labu"),
                                                            group1 == "MPXV"),
                                              sel_obj.df, by="object_id") %>% 
-      mutate(y.position = log10(max(sel_obj_conds.df$`q97.5`)*1.1),
+      mutate(y.position = max(sel_obj_conds.df$`q97.5`)*1.1,
              treatment = group1,
-             time = str_extract(group2, "(?<=@)\\d+"),
-             p_value = formatC(p_value, format = "e", digits = 2))# for the pvalue labels in the graph
+             timepoint = as.numeric(str_extract(group2, "(?<=@)\\d+")),
+             #p_value = formatC(p_value, format = "e", digits = 2),
+             p_label = case_when(p_value < 0.001 ~ "***",
+                                 p_value < 0.01 ~ "**",
+                                 p_value < 0.05 ~ "*",
+                                 TRUE ~ ""))# for the pvalue labels in the graph
     
     sel_intensity_range.df <- dplyr::group_by(sel_obj_conds.df, object_id) %>% dplyr::summarise(
       intensity_min = 0.5*quantile(q25, 0.05, na.rm=TRUE),
@@ -238,12 +243,13 @@ dplyr::left_join(sel_objects.df, dplyr::select(msdata_full$ptmngroup_idents, ptm
         geom_text(data=sel_obj_msdata.df,
                   aes(y = intensity_used, label=replicate),
                   position = position_jitter(width = 0.75, height = 0, seed=12323), size=1, color="lightgray", show.legend=FALSE) +
+        geom_text(data = sel_obj_contrasts.df, aes(x = timepoint, y = y.position, label = p_label), colour = "black")+
         theme_bw_ast(base_family = "", base_size = 8) +
         scale_x_continuous(breaks=unique(msdata$msruns$timepoint_num)) +
         scale_color_manual(values=treatment_palette) +
         scale_shape_manual(values=c("valid"=19, "bad PTM loc"=8, "bad ident"=1, "bad ident&loc"=4)) +
         scale_fill_manual(values=treatment_palette) +
-        scale_y_log10("log10(PTM Intensity)") +
+        scale_y_log10("PTM Intensity") +
         ggtitle(str_c(sel_obj.df$object_label, " timecourse"),
                 subtitle=str_c(sel_obj.df$protein_description, " (npepmodstates=", sel_obj.df$n_pepmodstates, ")")) +
         facet_wrap( ~ object_label+pepmodstate_seq, ncol =1, scales = "free")
@@ -388,3 +394,95 @@ dplyr::left_join(sel_objects.df, dplyr::select(msdata_full$ptmn_stats, ptmn_id, 
     }
     tibble()
   })
+
+#plot phosphosites on viral proteins----
+plot_version <- 20220817
+ptm_pvalue_ident_max <- 1E-3
+ptm_pvalue_quant_max <- 1E-2
+ptm_locprob_ident_min <- 0.75
+ptm_locprob_quant_min <- 0.5
+
+ptm_status_levels <- c("N/A", "potential", "low conf.", "observed")
+
+ptmngroupXcondition_stats.df <- dplyr::select(msdata_full$ptmngroups, is_viral, ptm_type, ptmngroup_id, ptmn_id, ptm_id) %>% dplyr::filter(is_viral) %>%
+  dplyr::left_join(msdata_full$ptmn2pepmodstate) %>%
+  dplyr::left_join(msdata_full$pepmodstate_intensities) %>%
+  dplyr::left_join(dplyr::select(msdata_full$ptmn_locprobs, evidence_id, ptmn_id, ptm_locprob, msrun, ptm_AA_seq)) %>%
+  dplyr::left_join(msdata_full$msruns) %>%
+  dplyr::group_by(ptm_type, ptm_id, ptmn_id, ptmngroup_id, condition) %>%
+  dplyr::summarise(ptm_pvalue_min = min(psm_pvalue, na.rm=TRUE),
+                   ptm_locprob_max = max(ptm_locprob, na.rm=TRUE),
+                   n_idented_and_localized  = n_distinct(str_c(msrun, " ", pepmodstate_id)[(coalesce(psm_pvalue, 1) <= ptm_pvalue_ident_max) &
+                                                                                             (coalesce(ptm_locprob, 0) >= ptm_locprob_ident_min)]),
+                   n_quanted  = n_distinct(str_c(msrun, " ", pepmodstate_id)[(coalesce(psm_pvalue, 1) <= ptm_pvalue_quant_max) &
+                                                                               (coalesce(ptm_locprob, 0) >= ptm_locprob_quant_min)]),
+                   .groups="drop") %>% 
+  left_join(msdata_full$ptm2protein) %>% 
+  left_join(select(msdata_full$proteins, protein_ac, protein_name, seq)) %>% 
+  mutate(seq_length = str_length(seq)) %>% 
+  filter(!is.na(ptm_AA_seq))
+
+
+viral_phospho_intensities.df <- dplyr::filter(fit_stats$object_conditions, var == "obj_cond_labu", is_viral, ptm_type == "Phospho", var == "obj_cond_labu") %>% 
+  dplyr::inner_join(dplyr::select(msglm_def$conditions, condition, treatment, timepoint, timepoint_num), by="condition") %>%
+  filter(treatment == "MPXV") %>% 
+  dplyr::left_join(ptmngroupXcondition_stats.df) %>% 
+  dplyr::mutate(ptm_correct = (ptm_type == "Phospho" & ptm_AA_seq %in% c("S","T","Y")),
+                is_observed = coalesce(n_idented_and_localized, 0) > 0,
+                is_observed_lowconf = coalesce(n_quanted) > 0,
+                ptm_status = case_when(is_observed ~ "observed",
+                                       is_observed_lowconf ~ "low conf.",
+                                       ptm_correct ~ "potential",
+                                       TRUE ~ "N/A") %>% factor(ordered=TRUE, levels=ptm_status_levels)) %>%
+    dplyr::mutate(timepoint_label = factor(str_c(timepoint, "h p.i."), levels=str_c(sort(unique(msdata_full$msruns$timepoint_num)), "h p.i.")),
+                shown_ptm_pos =  ptm_pos,
+                shown_median_log2 = pmax(if_else(!is.na(median) & ptm_status %in% c("observed", "low conf."),
+                                                 obj_labu_shift + median, 3.5), 3.5),
+                ptm_label = str_c(ptm_AA_seq, ptm_pos),
+                ptm_status = as.character(ptm_status),
+                ptm_typeXstatus = case_when(ptm_status == "observed" ~ ptm_type,
+                                            ptm_status == "N/A" ~ ptm_status,
+                                            TRUE ~ str_c(ptm_type, " (", ptm_status, ")"))) %>% 
+  filter(!is.na(ptm_label)) %>% 
+  dplyr::arrange(timepoint_num)
+
+ptm_palette <- c("Phospho" = "#5e268f", "N/A" = "gray") 
+ptm_typeXstatus_shape_palette <- c("Phospho"=22L, "Phospho (low conf.)"=22L, "Phospho (potential)" = 22L)#, "N/A" = 4L)
+ptm_typeXstatus_fill_palette <- c("Phospho"="#5e268f", "Phospho (low conf.)"="#c29ae5", "Phospho (potential)" = "white")#, "N/A" = NA)
+ptm_status_width_palette <- c("observed"=0.5, "low conf."=0.5, "potential" = 0.5)#, "N/A" = 0.5)
+domain_type_palette <- c("localization" = "lemonchiffon", "function" = "palegreen3")
+domain_type_color_palette <- c("localisation" = "lemonchiffon4", "function" = "palegreen4")
+
+dplyr::group_by(viral_phospho_intensities.df, protein_ac) %>%
+  group_walk(function(sel_obj_conds.df, ...){
+    viral_gene <- sel_obj_conds.df$genename[[1]]
+    message("Plotting PTMs of ", viral_gene)
+    p <- ggplot(sel_obj_conds.df, aes(x = ptm_pos, y = shown_median_log2)) +
+      geom_segment(aes(xend = ptm_pos, y = 1, yend = shown_median_log2,
+                       color= ptm_typeXstatus))+
+      geom_point(aes(shape=ptm_typeXstatus, fill=ptm_typeXstatus), color="gray", size=2.5) +
+      geom_hline(yintercept = 1, colour = "black", size = 3)+
+      #scale_color_manual("Virus", values = ptm_typeXstatus_color_palette) + new_scale_color() +
+      geom_text_repel(data=sel_obj_conds.df,
+                      aes(label = ptm_label, color=ptm_type),
+                      min.segment.length=0.2, segment.alpha=0.5, segment.size=0.25, nudge_y = 1, size=4) +
+      scale_color_manual("PTM", values = ptm_palette) +
+      scale_fill_manual("PTM", values = ptm_typeXstatus_fill_palette) +
+      scale_shape_manual("PTM", values = ptm_typeXstatus_shape_palette) +
+      scale_y_continuous(expression(log[2](Intensity), parse=TRUE)) +
+      scale_x_continuous("Aligned Position", limits=c(0L, sel_obj_conds.df$seq_length[[1]])) +
+      facet_grid(timepoint_label ~ .) +
+      theme_bw_ast(base_family = "") +
+      theme(panel.border = element_blank(), panel.grid = element_blank(), axis.line = element_blank()) +
+      guides(colour = "none")+
+      ggtitle(str_c("PTMs on ", viral_gene, " protein"),
+              subtitle=sel_obj_conds.df$protein_name)
+    plot_path <- file.path(analysis_path, "plots", str_c(mstype, '_', data_version, "_", fit_version), str_c("viral_ptm_", plot_version))
+    if (!dir.exists(plot_path)) dir.create(plot_path, recursive = TRUE)
+    ggsave(p, file = file.path(plot_path, str_c(project_id, "_", mstype, '_', fit_version, "_viral_",
+                                                viral_gene, "_", plot_version,
+                                                ".pdf")),
+           width=6+nrow(sel_obj_conds.df)/15, height=5, device = cairo_pdf, family="Arial")
+  })
+
+
