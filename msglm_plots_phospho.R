@@ -167,7 +167,7 @@ group_by(object_contrasts_4show.df, ci_target, contrast,
              })
 
 #Making timecourse for all proteins. The dots are from the original peptide intensity values of MQ.----
-sel_objects.df <- dplyr::filter(modelobjs_df, str_detect(gene_name, "PPP1R7") & ptm_type == "Phospho")  #This is used for debugging
+#sel_objects.df <- dplyr::filter(modelobjs_df, str_detect(gene_name, "PPP1R7") & ptm_type == "Phospho")  #This is used for debugging
 sel_objects.df <- dplyr::semi_join(modelobjs_df, dplyr::select(fit_stats$objects, object_id), by="object_id")#This is all!
 
 msdata_full$pepmodstates <- dplyr::mutate(msdata_full$pepmodstates,
@@ -212,12 +212,7 @@ dplyr::left_join(sel_objects.df, dplyr::select(msdata_full$ptmngroup_idents, ptm
       dplyr::inner_join(msdata_full$pepmodstate_intensities) %>%
       dplyr::inner_join(msdata_full$ptmn_locprobs) %>%
       dplyr::inner_join(dplyr::select(msdata$msrun_shifts, msrun, total_msrun_shift)) %>%
-      dplyr::mutate(#intensity_norm_orig = intensity,
-                    #intensity_norm_orig_scaled = intensity_norm_orig*exp(-qobj_shift),
-                    intensity_norm = intensity*exp(-total_msrun_shift),
-                    #intensity_norm_scaled = intensity_norm*exp(-qobj_shift),
-                    #intensity_norm_orig_scaled_trunc = pmin(pmax(intensity_norm_orig_scaled,
-                    #                                             intensity_min), intensity_max),
+      dplyr::mutate(intensity_norm = intensity*2^(-total_msrun_shift),
                     intensity_norm_trunc = pmin(pmax(intensity_norm,intensity_min), intensity_max),
                     intensity_used = intensity_norm_trunc
       ) %>%
