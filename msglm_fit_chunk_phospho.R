@@ -2,7 +2,7 @@
 
 Sys.setenv(MKL_NUM_THREADS = 1)
 
-#job.args <- c("mpxv", "msglm_mpxv_phospho", "20220809", "20220811", "3212")
+#job.args <- c("mpxv", "msglm_mpxv_phospho", "20220809", "20220811", "207")
 if (!exists('job.args')) {
   job.args <- commandArgs(trailingOnly = TRUE)
 }
@@ -24,7 +24,7 @@ source("~/R/config.R")
 source(file.path(base_scripts_path, 'R/misc/setup_base_paths.R'))
 source(file.path(misc_scripts_path, 'setup_project_paths.R'))
 
-rdata_filepath <- file.path(scratch_path, paste0(project_id, "_msglm_data_phospho_", data_version, "_", fit_version, ".RData"))
+rdata_filepath <- file.path(scratch_path, paste0(project_id, "_msglm_data_phospho_", fit_version, ".RData"))
 message("Loading data from ", rdata_filepath)
 load(rdata_filepath)
 
