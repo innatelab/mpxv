@@ -25,13 +25,8 @@ load(file.path(results_path, str_c(project_id, '_msglm_fit_', mstype, "_", fit_v
 
 modelobj <- msdata$msentities['object']
 quantobj <- msdata$msentities['quantobject']
-modelobj_suffix <- "_ptmn"
-modelobjs_df <- msdata$objects %>% 
-  left_join(select(msdata_full$proteins, protein_ac, protein_description = protein_name)) %>% 
-  mutate(protac_label = protein_ac)
 modelobj_idcol <- paste0(modelobj, "_id")
 quantobj_idcol <- paste0(quantobj, "_id")
-obj_labu_shift <- msdata[[str_c(quantobj, "_mscalib")]]$zShift
 
 contrasts.df <- dplyr::ungroup(msglm_def$contrasts) %>%
   dplyr::inner_join(tidyr::pivot_wider(dplyr::mutate(as.data.frame.table(msglm_def$metaconditionXcontrast, responseName="w"),
@@ -65,6 +60,12 @@ require(ggpubr)
 
 source(file.path(misc_scripts_path, 'ggplot_ext.R'))
 source(file.path(misc_scripts_path, 'furrr_utils.R'))
+
+modelobj_suffix <- "_ptmn"
+modelobjs_df <- msdata$objects %>% 
+  left_join(select(msdata_full$proteins, protein_ac, protein_description = protein_name)) %>% 
+  mutate(protac_label = protein_ac)
+obj_labu_shift <- msdata[[str_c(quantobj, "_mscalib")]]$zShift
 
 treatment_palette <- c("mock" = "gray", "MPXV" = "#F9CB40")
 hit_palette <- c("non-hit" = "grey", "hit" = "black", "oxidation hit" = "dark grey", "viral hit" = "#F9CB40", "only sig" = "light blue")
@@ -168,6 +169,7 @@ group_by(object_contrasts_4show.df, ci_target, contrast,
 
 #Making timecourse for all proteins. The dots are from the original peptide intensity values of MQ.----
 #sel_objects.df <- dplyr::filter(modelobjs_df, str_detect(gene_name, "PPP1R7") & ptm_type == "Phospho")  #This is used for debugging
+#sel_objects.df <- dplyr::semi_join(modelobjs_df, dplyr::select(fit_diff, object_id), by = "object_id")
 sel_objects.df <- dplyr::semi_join(modelobjs_df, dplyr::select(fit_stats$objects, object_id), by="object_id")#This is all!
 
 msdata_full$pepmodstates <- dplyr::mutate(msdata_full$pepmodstates,
@@ -259,7 +261,7 @@ dplyr::left_join(sel_objects.df, dplyr::select(msdata_full$ptmngroup_idents, ptm
     tibble()
   })
 
-
+#include fp data for the timecourse----
 
 
 

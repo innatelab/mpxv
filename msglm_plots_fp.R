@@ -26,10 +26,8 @@ load(file.path(results_path, str_c(project_id, '_msglm_fit_', mstype, "_", fit_v
 modelobj <- msdata$msentities['object']
 quantobj <- msdata$msentities['quantobject']
 modelobjs_df <- msdata$objects
-modelobj_suffix <- "_fp"
 modelobj_idcol <- paste0(modelobj, "_id")
 quantobj_idcol <- paste0(quantobj, "_id")
-obj_labu_shift <- msdata[[str_c(quantobj, "_mscalib")]]$zShift
 
 #plotting starts from here----
 require(Cairo)
@@ -39,11 +37,14 @@ require(ggnewscale)
 require(ggforce)
 require(ggpubr)
 
+obj_labu_shift <- msdata[[str_c(quantobj, "_mscalib")]]$zShift
+modelobj_suffix <- "_fp"
+
 source(file.path(misc_scripts_path, 'ggplot_ext.R'))
 source(file.path(misc_scripts_path, 'furrr_utils.R'))
 
 treatment_palette <- c("mock" = "gray", "MPXV" = "#F9CB40")
-hit_palette <- c("non-hit" = "grey", "hit" = "black", "oxidation hit" = "dark grey", "viral hit" = "#F9CB40", "only sig" = "light blue")
+hit_palette <- c("non-hit" = "grey", "hit" = "black", "viral hit" = "#F9CB40", "only sig" = "light blue")
 base_font_family <- "Segoe UI Symbol"
 base_plot_path <- file.path(analysis_path, 'plots', str_c(data_info$msfolder, "_", fit_version))
 sel_ci_target <- "average"
@@ -63,7 +64,7 @@ object_contrasts_thresholds.df <- dplyr::select(contrasts.df, offset, offset_pri
                                   contrast_type == "comparison" ~ 1E-2,
                                   TRUE ~ NA_real_),
     median_threshold = case_when(contrast_type == "filtering" ~ pmax(2.0, 2.0 + abs(offset - offset_prior)),
-                                 contrast_type == "comparison" ~ pmax(0.5, 0.25 + abs(offset - offset_prior)),
+                                 contrast_type == "comparison" ~ pmax(0.25, 0.25 + abs(offset - offset_prior)),
                                  TRUE ~ NA_real_),
     median_max = case_when(contrast_type == "filtering" ~ 12,
                            contrast_type == "comparison" ~ 6,
@@ -71,16 +72,15 @@ object_contrasts_thresholds.df <- dplyr::select(contrasts.df, offset, offset_pri
   )
 
 #volcano for all contrasts----
-object_contrasts_4show.df <- fit_contrasts$object_conditions %>%
+object_contrasts_4show.df <- object_contrasts.df %>%
   dplyr::filter(var %in% c("obj_cond_labu", "obj_cond_labu_replCI")) %>%
   dplyr::ungroup() %>%
   select(-contains("threshold")) %>%
   dplyr::inner_join(object_contrasts_thresholds.df) %>%
   dplyr::mutate(is_signif = (p_value <= p_value_threshold) & (abs(median - offset) >= median_threshold),
-                is_hit_nomschecks = is_signif & !is_contaminant,
-                is_hit = is_hit_nomschecks, 
-                hit_type = case_when(is_hit & str_detect(object_label, "Oxidation") ~ "oxidation hit",
-                                     is_hit & is_viral ~ "viral hit",
+                is_hit_nomschecks = is_signif & !is_contaminant & !is_reverse,
+                is_hit = is_hit_nomschecks & (pmax(nmsruns_quanted_lhs_max, nmsruns_quanted_rhs_max)>=3), #quantified in 3/5 on either side
+                hit_type = case_when(is_hit & is_viral ~ "viral hit",
                                      is_hit ~ "hit", 
                                      is_hit_nomschecks ~ "only sig",
                                      TRUE ~ "non-hit"), 
@@ -166,10 +166,11 @@ group_by(object_contrasts_4show.df, ci_target, contrast,
              })
 
 #Making timecourse for all proteins. The dots are from the original LFQ intensity values of MQ.----
-sel_objects.df <- dplyr::filter(modelobjs_df, str_detect(gene_names, "IFIT1"))  #This is used for debugging
+#sel_objects.df <- dplyr::filter(modelobjs_df, str_detect(gene_names, "IFIT1"))  #This is used for debugging
+#sel_objects.df <- dplyr::semi_join(modelobjs_df, dplyr::select(fit_diff, object_id), by = "object_id")
 sel_objects.df <- dplyr::semi_join(modelobjs_df, dplyr::select(fit_stats$objects, object_id), by="object_id")#This is all!
 
-  dplyr::group_by(sel_objects.df, object_id) %>% do({
+dplyr::group_by(sel_objects.df, object_id) %>% do({
     sel_obj.df <- .
     message("Plotting ", sel_obj.df$object_label, " time course")
     
@@ -257,8 +258,8 @@ sel_objects.df <- dplyr::semi_join(modelobjs_df, dplyr::select(fit_stats$objects
   })
 
 #Making peptide heatmaps for every protein group----
-sel_objects.df <- dplyr::filter(modelobjs_df, str_detect(gene_names, "IFIT1"))
-#sel_objects.df <- modelobjs_df # all!!!
+#sel_objects.df <- dplyr::filter(modelobjs_df, str_detect(gene_names, "IFIT1"))
+sel_objects.df <- modelobjs_df # all!!!
   
 sel_pepmodstates.df <- dplyr::inner_join(sel_objects.df,
                                            msdata_full[[str_c(modelobj, "2pepmod")]]) %>% 
