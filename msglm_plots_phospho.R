@@ -68,7 +68,8 @@ modelobjs_df <- msdata$objects %>%
 obj_labu_shift <- msdata[[str_c(quantobj, "_mscalib")]]$zShift
 
 treatment_palette <- c("mock" = "gray", "MPXV" = "#F9CB40")
-hit_palette <- c("non-hit" = "grey", "hit" = "black", "oxidation hit" = "dark grey", "viral hit" = "#F9CB40", "only sig" = "light blue")
+hit_palette <- c("non-hit" = "grey", "hit" = "black", "oxidation hit" = "dark grey", "viral hit" = "#F9CB40", "only sig" = "light blue", "is hit nofp" = "dark blue")
+fp_treatment_palette <- c(mock="lightgray", MPXV = "gold")
 base_font_family <- "Segoe UI Symbol"
 base_plot_path <- file.path(analysis_path, 'plots', str_c(data_info$msfolder, "_", fit_version))
 sel_ci_target <- "average"
@@ -80,11 +81,14 @@ object_contrasts_4show.df <- object_contrasts.df %>%
   dplyr::inner_join(object_contrasts_thresholds.df) %>%
   dplyr::mutate(is_signif = (p_value <= p_value_threshold) & (abs(median - offset) >= median_threshold),
                 is_hit_nomschecks = is_signif & !is_contaminant,
-                is_hit = is_hit_nomschecks & ((nmsruns_quanted_lhs_max >= 3) | (nmsruns_quanted_rhs_max >= 3)), 
-                hit_type = case_when(is_hit & str_detect(object_label, "Oxidation") ~ "oxidation hit",
+                is_hit_nofp = is_hit_nomschecks & ((nmsruns_quanted_lhs_max >= 3) | (nmsruns_quanted_rhs_max >= 3)),
+                is_hit = is_hit_nofp & (is_viral | !coalesce(fp_is_hit, FALSE) | sign(median) != sign(coalesce(fp_median, 0))), # |
+                #(abs(median - fp_median) >= 2)),
+                hit_type = case_when(is_signif & !is_hit_nofp ~ "only sig",
+                                     is_hit_nofp & !is_hit ~ "is hit nofp",
+                                     is_hit & str_detect(object_label, "Oxidation") ~ "oxidation hit",
                                      is_hit & is_viral ~ "viral hit",
                                      is_hit ~ "hit", 
-                                     is_hit_nomschecks ~ "only sig",
                                      TRUE ~ "non-hit"), 
                 is_sel = is_hit_nomschecks,
                 mean_trunc = pmax(-median_max, pmin(median_max, mean - offset)) + offset,
@@ -168,13 +172,12 @@ group_by(object_contrasts_4show.df, ci_target, contrast,
              })
 
 #Making timecourse for all proteins. The dots are from the original peptide intensity values of MQ.----
-#sel_objects.df <- dplyr::filter(modelobjs_df, str_detect(gene_name, "PPP1R7") & ptm_type == "Phospho")  #This is used for debugging
+#sel_objects.df <- dplyr::filter(modelobjs_df, str_detect(gene_name, "DDX21") & ptm_type == "Phospho")  #This is used for debugging
 #sel_objects.df <- dplyr::semi_join(modelobjs_df, dplyr::select(fit_diff, object_id), by = "object_id")
 sel_objects.df <- dplyr::semi_join(modelobjs_df, dplyr::select(fit_stats$objects, object_id), by="object_id")#This is all!
 
 msdata_full$pepmodstates <- dplyr::mutate(msdata_full$pepmodstates,
                                           pepmodstate_seq = str_c(pepmod_seq, ".", charge))
-fp_treatment_palette <- c(mock="lightgray", MPXV = "gold")
 
 dplyr::left_join(sel_objects.df, dplyr::select(msdata_full$ptmngroup_idents, ptmngroup_id, n_pepmodstates)) %>% unique() %>% 
   dplyr::group_by(object_id) %>% slice_max(order_by = n_pepmodstates) %>% do({
@@ -262,30 +265,21 @@ dplyr::left_join(sel_objects.df, dplyr::select(msdata_full$ptmngroup_idents, ptm
   })
 
 #include fp data for the timecourse----
-
-
-
-
 require(multidplyr)
 plot_cluster <- new_cluster(16)
 cluster_library(plot_cluster, c("dplyr", "ggplot2", "stringr", "Cairo", "readr", "rlang"))
-cluster_copy(plot_cluster, c("conditions.df", "fit_stats", "msdata_full", "theme_bw_ast",
-                             "sel_std_type", "treatment_palette", "fp_treatment_palette",
-                             "global_labu_shift", "project_id", "data_info",
-                             "analysis_path", "msfolder", "fit_version", "modelobj_suffix", "fp.env", "ptm2protregroup.df"
-                             
-                             "base_plot_path", "base_font_family",
+cluster_copy(plot_cluster, c("data_info", "analysis_path", "base_plot_path", "base_font_family",
                              "project_id", "data_version", "fit_version", "obj_labu_shift",
                              "mlog10_trans", "mlog_pow_trans", "mlog_breaks",
                              "theme_bw_ast",
                              "point_truncation_shape_palette", "point_truncation_size_palette",
                              "treatment_palette",
-                             "sel_ci_target", "modelobj", "quantobj", "modelobj_idcol", "quantobj_idcol", "modelobjs_df",
+                             "sel_ci_target", "modelobj", "quantobj", "modelobj_idcol", "quantobj_idcol", "modelobjs_df", "modelobj_suffix",
+                             "fp.env", "ptmngroup2protregroup.df", "fp_treatment_palette",
                              "msglm_def", "fit_stats", "msdata", "msdata_full", "object_contrasts_4show.df"))
 
-dplyr::left_join(sel_objects.df, dplyr::select(msdata_full$ptmn_stats, ptmn_id, n_pepmodstates)) %>%
-  dplyr::left_join(dplyr::select(msdata_full$proteins, protein_ac, protein_description=protein_name)) %>%
-  group_by(object_id) %>% partition(plot_cluster) %>%
+dplyr::left_join(sel_objects.df, dplyr::select(msdata_full$ptmngroup_idents, ptmngroup_id, n_pepmodstates)) %>% unique() %>% 
+  dplyr::group_by(object_id) %>% slice_max(order_by = n_pepmodstates) %>% partition(plot_cluster) %>%
   do({
     sel_obj.df <- .
     sel_ptm_type <- sel_obj.df$ptm_type
@@ -355,15 +349,15 @@ dplyr::left_join(sel_objects.df, dplyr::select(msdata_full$ptmn_stats, ptmn_id, 
         scale_color_manual(values=treatment_palette) +
         scale_shape_manual(values=c("valid"=19, "bad PTM loc"=8, "bad ident"=1, "bad ident&loc"=4)) +
         scale_fill_manual(values=treatment_palette) +
-        scale_y_log10("log10(PTM Intensity)") +
+        scale_y_log10("PTM Intensity") +
         ggtitle(str_c(sel_obj.df$object_label, " timecourse"),
                 subtitle=str_c(sel_obj.df$protein_description, " (npepmodstates=", sel_obj.df$n_pepmodstates, ")")) +
         facet_wrap( ~ object_label+pepmodstate_seq, ncol =1, scales = "free")
       
-      h <- 2+3*n_distinct(sel_obj_iactions.df$pepmodstate_id)
+      h <- 2+8*n_distinct(sel_obj_conds.df$pepmodstate_id)
       
       if (exists("fp.env")) {
-        sel_fp_conds.df <- semi_join(fp.env$fit_stats$object_conditions, semi_join(ptm2protregroup.df, sel_obj.df)) %>%
+        sel_fp_conds.df <- semi_join(fp.env$fit_stats$object_conditions, semi_join(ptmngroup2protregroup.df, sel_obj.df), by = c("protregroup_id" = "fp_protregroup_id")) %>%
           filter(var == if_else(sel_ci_target == "average", "obj_cond_labu", "obj_cond_labu_replCI")) %>%
           dplyr::inner_join(dplyr::select(msglm_def$conditions, condition, treatment, timepoint, timepoint_num), by="condition")
         if (nrow(sel_fp_conds.df) > 0L) {
@@ -377,17 +371,20 @@ dplyr::left_join(sel_objects.df, dplyr::select(msdata_full$ptmn_stats, ptmn_id, 
             scale_x_continuous(breaks=unique(msdata_full$msruns$timepoint_num)) +
             scale_color_manual(values=fp_treatment_palette) +
             scale_fill_manual(values=fp_treatment_palette) +
-            scale_y_log10("log10(Protein Intensity)")
+            ylab("Protein Intensity")
           p <- ggpubr::ggarrange(p, fp_plot, ncol=1, heights=c(0.6, 0.3))
-          h <- h + 2L
+          h <- h + 6L
         }
       }
       p <- p + ggtitle(str_c(sel_obj.df$object_label, " timecourse"),
                        subtitle=str_c(sel_obj.df$protein_description, " (npepmodstates=", sel_obj.df$n_pepmodstates, ")"))
+      plot_path <- file.path(base_plot_path,
+                             str_c("timecourse_", sel_ptm_type, "_", sel_ci_target,
+                                   modelobj_suffix, if_else(sel_obj.df$is_viral[[1]], "/viral", "")))
       if (!dir.exists(plot_path)) {dir.create(plot_path, recursive = TRUE)}
       ggsave(p, file = file.path(plot_path, str_c(project_id, "_", data_info$msfolder, '_', fit_version, "_",
                                                   str_replace(sel_obj.df$object_label[[1]], "/", "-"), "_", sel_obj.df$object_id[[1]], "_long.pdf")),
-             width=8, height=h, limitsize=FALSE, device = cairo_pdf)
+             width=6, height=h, limitsize=FALSE, device = cairo_pdf)
     }
     tibble()
   })
