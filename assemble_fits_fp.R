@@ -145,10 +145,10 @@ contrasts.df <- dplyr::ungroup(msglm_def$contrasts) %>%
                                        c(contrast), names_from = "side", values_from = "metacondition",
                                        names_glue = "{.value}_{side}")) %>%
   dplyr::mutate(offset = 0, offset_prior = 0) %>%
-  dplyr::left_join(dplyr::select(msglm_def$conditions, metacondition_lhs = condition, treatment_lhs = treatment)) %>%
-  dplyr::left_join(dplyr::select(msglm_def$conditions, metacondition_rhs = condition, treatment_rhs = treatment))
+  dplyr::left_join(dplyr::select(msglm_def$conditions, metacondition_lhs = condition, treatment_lhs = treatment, timepoint_lhs = timepoint)) %>%
+  dplyr::left_join(dplyr::select(msglm_def$conditions, metacondition_rhs = condition, treatment_rhs = treatment, timepoint_rhs = timepoint))
 
-object_contrasts_thresholds.df <- dplyr::select(contrasts.df, contrast, contrast_type, offset) %>%
+object_contrasts_thresholds.df <- contrasts.df %>%
   mutate(p_value_threshold = case_when(TRUE ~ 0.01),
          #p_value_threshold_lesser = case_when(TRUE ~ 0.01),
          median_threshold = case_when(TRUE ~ 0.25)#,
