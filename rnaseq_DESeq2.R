@@ -330,7 +330,7 @@ group_by(sel_objects.df, GeneID) %>%
 object_rna_contrast_thresholds.df <- tibble(
   #contrast_kind = "treatment_vs_treatment",
   contrast_type = "comparison",
-  p_value_threshold = 0.001,
+  p_value_threshold = 0.00001,
   #log2FC_threshold = log2(1.5),
   log2FC_threshold = 1,
   log2FC_max = 3,
@@ -341,7 +341,7 @@ object_contrasts_4show.df <- DESeq_ashr_contrasts.df %>%
   dplyr::inner_join(object_rna_contrast_thresholds.df) %>%
   drop_na() %>% 
   dplyr::mutate(is_signif = padj <= p_value_threshold & abs(log2FoldChange) >= log2FC_threshold,
-                is_hit = is_signif & (count_mean_lhs >= 20 | count_mean_rhs >= 20),
+                is_hit = is_signif & (count_mean_lhs >= 50 | count_mean_rhs >= 50),
                 p_value_compressed = 10^(-sapply(-log10(padj), mlog10_pvalue_compress)),
                 show_label = coalesce(is_hit, FALSE),
                 log2FC_trunc = pmax(-log2FC_max, pmin(log2FC_max, log2FoldChange)),
@@ -349,12 +349,19 @@ object_contrasts_4show.df <- DESeq_ashr_contrasts.df %>%
                 truncation_type = point_truncation_type(truncation, is_signif),
                 status = case_when(is_hit & log2FoldChange > 0 ~ 1,
                 is_hit & log2FoldChange < 0 ~ -1,
-                TRUE ~ 0)) %>%
+                TRUE ~ 0),
+                change = case_when(status == 1 ~ "+", 
+                                   status == -1 ~ "-",
+                                   TRUE ~ ".")) %>%
   dplyr::group_by(contrast) %>%
   dplyr::mutate(show_label = if_else(rep.int(sum(show_label) >= 400L, n()), is_hit, show_label)) %>%
   dplyr::ungroup()
 
 contrasts_stats.df <- object_contrasts_4show.df %>%
+  filter(!str_detect(GeneID,"-AS" ),
+         !str_detect(GeneID, "-\\d{4,}"),
+         !str_detect(GeneID, "AC\\d{3,}"),
+         !str_detect(GeneID, "LINC")) %>% 
   group_by(contrast) %>% 
   summarise(sum_sig = sum(is_signif), sum_hit = sum(is_hit), 
   sum_hit_plus = sum(status == 1), sum_hit_minus = sum(status == -1))
@@ -464,7 +471,6 @@ time_vs_time_long <- object_contrasts_4show.df %>%
 
 hits2export_vsmock_summary <- treatment_vs_treatment_long %>% 
   filter(treatment_rhs == "mock", is_hit) %>% 
-  mutate(change = ifelse(status > 0, "+", "-")) %>% 
   select(GeneID, treatment = treatment_lhs, timepoint = timepoint_lhs, change) %>% 
   group_by(GeneID, treatment) %>% 
   summarise(first_sig_timepoint = min(timepoint), all_timepoints = paste0(timepoint, collapse = ","), change = paste0(change, collapse = ",")) %>% 
