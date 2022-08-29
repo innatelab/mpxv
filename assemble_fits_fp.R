@@ -114,7 +114,16 @@ contrastXcondition.df <- as_tibble(as.table(msglm_def$conditionXmetacondition)) 
   dplyr::inner_join(as_tibble(as.table(msglm_def$metaconditionXcontrast))) %>% dplyr::filter(n != 0) %>% 
   dplyr::arrange(contrast, metacondition, condition)
 
-pre_object_contrasts.df <- dplyr::inner_join(obj_conditions.df, contrastXcondition.df) %>%
+pre_object_contrasts.df <- obj_conditions.df %>% 
+  group_by(object_id, condition) %>%
+  mutate(obs = seq(n())) %>%
+  ungroup %>%
+  # complete the data
+  tidyr::complete(object_id, condition, obs) %>%
+  select(-obs) %>%
+  mutate(protregroup_id = coalesce(protregroup_id, object_id)) %>% 
+  replace_na(list( nmsruns_quanted = 0, nmsruns_idented = 0)) %>% 
+  dplyr::inner_join(contrastXcondition.df) %>%
   dplyr::mutate(is_lhs = n > 0) %>%
   dplyr::group_by(object_id, contrast, is_lhs) %>%
   dplyr::summarise(has_quanted = any(!is.na(nmsruns_quanted)),
