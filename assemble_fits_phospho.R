@@ -266,5 +266,5 @@ object_contrasts_report_long.df <- object_contrasts.df %>%
          is_viral, median, mean, sd, p_value,
          is_signif, is_hit_nomschecks, is_hit_nofp, is_hit, change)
 
-write_tsv(object_contrasts_report.df, file.path(analysis_path, "reports", paste0(project_id, '_phospho_contrasts_report_', fit_version, '_long.txt')))
+write_tsv(object_contrasts_report_long.df, file.path(analysis_path, "reports", paste0(project_id, '_phospho_contrasts_report_', fit_version, '_long.txt')))
 
