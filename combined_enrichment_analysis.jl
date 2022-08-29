@@ -1,5 +1,5 @@
 proj_info = (id = "mpxv",
-             oesc_ver = "20220822")
+             oesc_ver = "20220829")
 
 datasets = Dict(
     :fp => (fit_ver="20220817", data_ver = "20220817",
@@ -11,13 +11,12 @@ datasets = Dict(
                  analysis=:msglm, ptm=:phospho,
                  datatype=:phospho, entity=:ptm,
                  label="Phosphoproteome",
-                 color="#5e268f")#,
-   # :rnaseq => (folder="parsars_rnaseq_20201020",
-    #            fit_ver="20201020",
-    #            analysis=:limma, ptm=nothing,
-     #           datatype=:rnaseq, entity=:gene,
-      #          label="Transcriptome",
-       #         color="#bf1c2c"),
+                 color="#5e268f"),
+    :rnaseq => (fit_ver="20220813",
+                analysis=:DESeq2, ptm=nothing,
+                datatype=:rnaseq, entity=:gene,
+                label="Transcriptome",
+                color="#bf1c2c"),
 )
 
 using Pkg
@@ -166,6 +165,7 @@ ptm_protgroups_df = ProtgroupAssembly.dataframe(ptm_protgroups, protein_ranks=pr
                             protgroup_col=:protgroup_id, protein_col=:protein_ac,
                             proteins_info=proteins_df)
 rename!(ptm_protgroups_df, [:gene_name => :gene_names, :protein_name => :protein_names])
+ptm_protgroups_df[!, :is_reverse] .= false
 
 using CodecZlib
 
@@ -189,29 +189,20 @@ end
 fp_protgroups_df = rename!(copy(msglm_rdata[:fp].full_data["msdata_full"]["protregroups"]),
                            :protregroup_id => :protgroup_id)
 
-rnaseq_rdata = load(joinpath(scratch_path, "$(proj_info.id)_$(datasets[:rnaseq].folder)_$(datasets[:rnaseq].fit_ver).RData"), convert=true)
-rnaseq_contrasts_df = copy(rnaseq_rdata["object_contrasts.df"], copycols=false)
+rnaseq_rdata = load(joinpath(results_path, "$(proj_info.id)_$(datasets[:rnaseq].analysis)_data_$(datasets[:rnaseq].fit_ver)_julia.RData"), convert=true)
+rnaseq_contrasts_df = rename!(copy(rnaseq_rdata["object_contrasts_4show.df"], copycols=false), :GeneID => :gene_names)
                             
-rnaseq_genename2proteinac_df = rename!(copy(rnaseq_rdata["genename2proteinac.df"], copycols=false),
-                                       :protein_ac => :protein_ac_noiso, :GeneName => :gene_name)
-rnaseq_genename2proteinac_ex_df = semijoin(innerjoin(
-        filter(r -> r.genename_source == "NCBI_Symbol" || !r.has_genesymbol, rnaseq_genename2proteinac_df),
-        select(proteins_df, [:protein_ac, :protein_ac_noiso], copycols=false), on=:protein_ac_noiso),
-        select(rnaseq_contrasts_df, :gene_name), on=:gene_name)
-rnaseq_protgroups_df = combine(groupby(filter!(r -> !ismissing(r.protein_ac),
-                unique!(select(rnaseq_genename2proteinac_ex_df, [:gene_name, :protein_ac]))), :gene_name)) do df
-    res = DataFrame(protein_acs = join(sort!(unique(df.protein_ac)), ";"),
-                    gene_names = df.gene_name[1:1])
-    res.majority_protein_acs = copy(res.protein_acs)
-    res[!, :is_contaminant] .= false
-    res[!, :is_reverse] .= false
-    res.organism = missings(String, nrow(res))
-    return res
-end
+rnaseq_protgroups_df = rename!(copy(rnaseq_rdata["rnaseq_genes2protacs.df"], copycols=false),
+                                        :GeneID => :gene_names)
+
+rnaseq_protgroups_df.majority_protein_acs = copy(rnaseq_protgroups_df.protein_acs)
+rnaseq_protgroups_df[!, :is_contaminant] .= false
+rnaseq_protgroups_df[!, :is_reverse] .= false
+rnaseq_protgroups_df.organism = missings(String, nrow(rnaseq_protgroups_df))
 rnaseq_protgroups_df.protgroup_id = 1:nrow(rnaseq_protgroups_df)
 
 protgroups_dfs = Dict(
-    #:rnaseq => rnaseq_protgroups_df,
+    :rnaseq => rnaseq_protgroups_df,
     :ptm => ptm_protgroups_df,
     :fp => fp_protgroups_df,
 )
@@ -239,7 +230,7 @@ for (dsname, pg_df) in pairs(protgroups_dfs)
     select!(pg_matches_df, Not(rowix_col))
 end
 pg_matches_long_df = FrameUtils.pivot_longer(pg_matches_df, [:protgroup_id_united, :protein_acs, :majority_protein_acs, :gene_names,
-                                             #=:is_contaminant, :is_reverse=#],
+                                             :is_contaminant, :is_reverse],
                         measure_vars_regex=r"^(?<value>rowix|protgroup_id|pgrank|acrank)_(?<var>[^u].+)$",
                         var_col=:dataset)
 pg_matches_long_df.dataset = Symbol.(pg_matches_long_df.dataset)
@@ -333,18 +324,21 @@ obj_contrasts_ptm_agg_df = combine(groupby(filter!(r -> (r.ci_target == sel_ci_t
 end
 
 obj_contrasts_rnaseq_agg_df = combine(groupby(innerjoin(rnaseq_contrasts_df, protgroups_dfs[:rnaseq],
-                                             on=[:gene_name]),
+                                             on=[:gene_names]),
                         [contrast_cols; :protgroup_id_united])) do df
-   min_ix = findmin(df.p_value)[2]
+   min_ix = findmin(df.padj)[2]
    return df[min_ix:min_ix, :]
 end
 obj_contrasts_rnaseq_agg_df[!, :dataset] .= :rnaseq
+obj_contrasts_rnaseq_agg_df.timepoint_lhs = string.(Int.(obj_contrasts_rnaseq_agg_df[!,:timepoint_lhs]))
+obj_contrasts_rnaseq_agg_df.timepoint_rhs = string.(Int.(obj_contrasts_rnaseq_agg_df[!,:timepoint_rhs]))
+
 
 united_cols = [:dataset; contrast_cols; :protgroup_id_united; :is_hit; :change]
 obj_contrasts_united_df = vcat(select(obj_contrasts_fp_agg_df, united_cols, copycols=false),
-                               select(obj_contrasts_ptm_agg_df, united_cols, copycols=false))#,
-                               #select(obj_contrasts_rnaseq_agg_df, united_cols, copycols=false))
-filter!(r -> r.treatment_rhs == "mock" && r.treatment_lhs != "infected" && r.timepoint_lhs == r.timepoint_rhs,
+                               select(obj_contrasts_ptm_agg_df, united_cols, copycols=false),
+                               select(obj_contrasts_rnaseq_agg_df, united_cols, copycols=false))
+filter!(r -> r.treatment_rhs == "mock" && r.timepoint_lhs == r.timepoint_rhs,
         obj_contrasts_united_df)
 countmap(collect(zip(obj_contrasts_united_df.is_hit, obj_contrasts_united_df.change)))
 
