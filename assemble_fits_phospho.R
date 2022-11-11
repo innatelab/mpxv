@@ -5,8 +5,8 @@
 
 project_id <- 'mpxv'
 message('Project ID=', project_id)
-data_version <- "20220812"
-fit_version <- "20220813"
+data_version <- "20221105"
+fit_version <- "20221105"
 mstype <- "phospho"
 message("Assembling fit results for project ", project_id,
         " (dataset v", data_version, ", fit v", fit_version, ")")
@@ -189,7 +189,7 @@ object_contrasts.df <- dplyr::left_join(object_contrasts_nofp.df, ptmngroup2prot
                                      is_hit ~ "hit", 
                                      TRUE ~ "non-hit")) 
 
-object_contrast_stats.df <- dplyr::group_by(object_contrasts.df, contrast, contrast_type, ci_target) %>%
+object_contrast_stats.df <- dplyr::group_by(object_contrasts_nofp.df, contrast, contrast_type, ci_target) %>%
   dplyr::summarise(p_value_001 = quantile(p_value, 0.001),
                    p_value_01 = quantile(p_value, 0.01),
                    p_value_05 = quantile(p_value, 0.05),
@@ -199,7 +199,7 @@ object_contrast_stats.df <- dplyr::group_by(object_contrasts.df, contrast, contr
                    n_hits = sum(is_hit_nomschecks, na.rm = TRUE),
                    n_plus = sum(change == "+"),
                    n_minus = sum(change == "-")) %>%
-  dplyr::ungroup()
+  dplyr::ungroup() %>% filter(ci_target == "average")
 
 object_contrasts_wide.df <- tidyr::pivot_wider(object_contrasts.df,
                                         id_cols = c("ci_target", "object_id", "object_label", "is_viral"),
@@ -225,9 +225,9 @@ save(results_info, fit_stats, fit_contrasts, ptmngroup2protregroup.df,
 #generate reports----
 require(purrr)
 
-ptm_annots.df <- read_tsv(file.path(data_path, str_c(mstype, "_", data_version), str_c("ptm_extractor_", data_version), "ptm_annots_20220812.txt"))
+ptm_annots.df <- read_tsv(file.path(data_path, str_c(mstype, "_", data_version), str_c("ptm_extractor_", data_version), str_c("ptm_annots_",data_version, ".txt")))
 
-object_contrasts_report.df <- object_contrasts.df %>%
+object_contrasts_report.df <- object_contrasts_nofp.df %>%
   filter(str_detect(contrast, "MPXV_vs_mock")) %>% 
   left_join(select(msdata$ptmngroups, ptmngroup_id, ptm_id, protein_ac)) %>%
   left_join(msdata_full$ptm2gene) %>% 
@@ -239,7 +239,8 @@ object_contrasts_report.df <- object_contrasts.df %>%
          kinase_gene_names, reg_function, reg_prot_iactions, reg_other_iactions, reg_pubmed_ids, diseases,
          ci_target, contrast,
          is_viral, median, mean, sd, p_value,
-         is_signif, is_hit_nomschecks, is_hit_nofp, is_hit, change) %>%
+         is_signif, is_hit_nomschecks, #is_hit_nofp, 
+         is_hit, change) %>%
   tidyr::extract(contrast, c("timepoint"), ".*@(\\d+h)", remove = FALSE) %>%
   mutate(timepoint = factor(timepoint, levels = c("6h", "12h", "24h"))) %>% 
   arrange(timepoint) %>% 
@@ -247,7 +248,8 @@ object_contrasts_report.df <- object_contrasts.df %>%
                 ptm_AA_seq, ptm_pos, 
                 ptmngroup_label, short_label, flanking_15AAs, ptm_is_known, 
                 kinase_gene_names, reg_function, reg_prot_iactions, reg_other_iactions, reg_pubmed_ids, diseases),
-              names_from = "timepoint", values_from = c("is_hit", "is_hit_nofp", "change", "median", "p_value", "sd")) %>%
+              names_from = "timepoint", values_from = c("is_hit", #"is_hit_nofp", 
+                                                        "change", "median", "p_value", "sd")) %>%
   replace_na(list(ptm_is_known = FALSE)) %>% 
   dplyr::arrange(gene_name, ptm_pos)
 
