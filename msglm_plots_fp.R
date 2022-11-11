@@ -5,8 +5,8 @@
 
 #The following part is only needed if starting from a fresh environment----
 project_id <- "mpxv"
-data_version <- "20220817"
-fit_version <- "20220817"
+data_version <- "20221104"
+fit_version <- "20221104"
 mstype <- "fp"
 message("Project ID=", project_id, " data version=", data_version)
 
@@ -322,8 +322,8 @@ sel_pepmods.df <- dplyr::group_by(sel_pepmod_intens.df, pepmod_id) %>%
     dplyr::arrange(desc(n_pepmod_quants), desc(median_quant), pepmod_id)
   
 group_by(sel_pepmod_intens.df, object_id) %>%
-    group_walk(.keep=TRUE,
-    #future_group_walk(.progress = TRUE, .keep = TRUE, .options = plot_furrr_opts,
+    #group_walk(.keep=TRUE,
+    future_group_walk(.progress = TRUE, .keep = TRUE, .options = plot_furrr_opts,
                       function(obj_pepmod_intens.df, obj_row) {
                         obj_row <- dplyr::semi_join(modelobjs_df, obj_row, by="object_id")
                         shown_pepmod_intens.df <- mutate(obj_pepmod_intens.df, !!modelobj_idcol := object_id,

@@ -184,7 +184,8 @@ object_contrast_stats.df <- dplyr::group_by(object_contrasts.df, contrast, contr
                    n_hits = sum(is_hit_nomschecks, na.rm = TRUE),
                    n_plus = sum(change == "+"),
                    n_minus = sum(change == "-")) %>%
-  dplyr::ungroup()
+  dplyr::ungroup() %>% 
+  filter(ci_target == "average")
 
 View(filter(object_contrast_stats.df, ci_target == "average") %>% dplyr::arrange(desc(n_hits)))
 
@@ -227,5 +228,15 @@ object_contrasts_long_report.df <- objects4report.df %>%
   mutate(timepoint = factor(timepoint, levels = c("6h", "12h", "24h"))) %>% 
   dplyr::arrange(gene_names, majority_protein_acs, timepoint, treatment_rhs, treatment_lhs, contrast, ci_target)
 
-write_tsv(object_contrasts_long_report.df,
+load(file.path(results_path, "mpxv_DESeq2_data_20220813_julia.RData")) 
+
+fp_rnaseq_combi_long.df <- object_contrasts_long_report.df %>% 
+  separate(majority_protein_acs, sep = ";", into = c("lead_protein_ac", "others")) %>% 
+  select(-others) %>% 
+  left_join(rnaseq_genes2protacs.df) %>% 
+  left_join(select(object_contrasts_4show.df, GeneID, contrast, rnaseq_log2FC = log2FoldChange, rnaseq_padj = padj, rnaseq_hit = is_hit, rnaseq_change = change ))
+
+write_tsv(fp_rnaseq_combi_long.df,
           file.path(analysis_path, "reports", paste0(project_id, '_', mstype, '_contrasts_report_', fit_version, '_long.txt')))
+
+

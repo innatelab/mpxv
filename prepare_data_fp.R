@@ -1,12 +1,12 @@
 # Prepare data for the full proteome analysis for HFF cells infected by monkeypox
-# Experiments done in Aug 2022
+# Experiments done in Aug 2022 (new exp done in Nov 2022)
 # Author: Yiqi Huang
 ###############################################################################
 
 project_id <- 'mpxv'
 message('Project ID=', project_id)
-data_version <- "20220817"
-fit_version <- "20220817"
+data_version <- "20221104"
+fit_version <- "20221104"
 mstype <- "fp"
 message('Dataset version is ', data_version)
 
@@ -199,7 +199,8 @@ msdata_full$protregroup_idents <- dplyr::inner_join(msdata_full$protregroup2pepm
 
 # condition = treatment X timepoint
 conditions.df <- dplyr::select(msdata_full$msruns, condition, treatment, timepoint, timepoint_num) %>%
-  dplyr::distinct()
+  dplyr::distinct() %>% 
+  arrange(treatment, timepoint_num)
 conditions.df <- dplyr::left_join(conditions.df,
                                   dplyr::select(conditions.df, treatment, timepoint_after=timepoint_num)) %>%
   dplyr::mutate(is_after = timepoint_num >= timepoint_after) %>%
