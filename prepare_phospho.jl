@@ -4,8 +4,8 @@
 ###############################################################################
 
 proj_info = (id = "mpxv",
-             data_ver = "20220812",
-             msfolder = "phospho_20220812",
+             data_ver = "20221105",
+             msfolder = "phospho_20221105",
              ptm_locprob_min = 0.75,
              )
 using Pkg
@@ -31,15 +31,16 @@ includet(joinpath(misc_scripts_path, "ptm_extractor.jl"));
 includet(joinpath(misc_scripts_path, "phosphositeplus_reader.jl"));
 
 @info "Add more info to msruns..."
-msruns_df = CSV.read(joinpath(data_path, "combined", "experimentalDesign.txt"), DataFrame)
+msruns_df = CSV.read(joinpath(data_path, "combined", "experimentalDesign.txt"), DataFrame) #check that the file is UTF8 encoded!
 rename!(msruns_df, :Name=>:rawfile, :Experiment=>:msexperiment, :PTM => :is_ptm, :Fraction => :msfraction)
-msrun_matches = match.(Ref(r"^HFF_(.*)_phos_(\d+)h_(\d)$"), msruns_df.msexperiment)
-msruns_df.treatment = getindex.(msrun_matches, 1);
-msruns_df.treatment = replace.(msruns_df.treatment, "MPX" => "MPXV") #instead of MPX, use the full name MPXV!
+msrun_matches = match.(Ref(r"(.*)HFF_(\d+)h_(.*)_(\d)$"), msruns_df.msexperiment)
+msruns_df.treatment = getindex.(msrun_matches, 3);
+msruns_df.treatment = replace.(msruns_df.treatment, "mpx" => "MPXV") #instead of MPX, use the full name MPXV!
 msruns_df.timepoint = getindex.(msrun_matches, 2);
 msruns_df.condition = string.(msruns_df.treatment, "_", msruns_df.timepoint);
-msruns_df.replicate = parse.(Int, getindex.(msrun_matches, 3));
+msruns_df.replicate = parse.(Int, getindex.(msrun_matches, 4));
 msruns_df.msexperiment = string.(msruns_df.condition, "_", msruns_df.replicate);
+msruns_df.is_skipped = contains.((getindex.(msrun_matches, 1)), "MBR")
 
 # read direct MaxQuant output
 @info "Reading phospho report..."
