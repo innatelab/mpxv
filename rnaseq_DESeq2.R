@@ -4,8 +4,8 @@
 
 project_id <- "mpxv"
 datatype <- "rnaseq"
-data_version <- 20220812
-analysis_version <- 20220813
+data_version <- 20220908
+analysis_version <- 20220908
 
 source("~/R/config.R")
 source(file.path(base_scripts_path, 'R/misc/setup_base_paths.R'))
@@ -58,8 +58,8 @@ clusterEvalQ(mop.cluster, library(DESeq2))
 clusterEvalQ(mop.cluster, library(ashr))
 
 rna_data_path <- file.path(data_path, str_c(datatype, "_", data_version))
-data <- read_tsv(file.path(rna_data_path, "487VG_Human_DGE_Matrix_noheader.txt"), guess_max = 1000) 
-annotation <- read_tsv(file.path(rna_data_path, "487VG_Human_SampleAnnotation_notail.txt"))
+data <- read_tsv(file.path(rna_data_path, "487VG_HumanMPXV_DGE_Matrix_noheader.txt"), guess_max = 1000) 
+annotation <- read_tsv(file.path(rna_data_path, "487VG_HumanMPXV_SampleAnnotation_notail.txt"))
 plot_path <- file.path(analysis_path, "plots", str_c(datatype, "_", data_version, "_", analysis_version))
 if (!dir.exists(plot_path)) dir.create(plot_path, recursive = TRUE)
 
@@ -440,6 +440,9 @@ object_contrasts_4show.df %>%
   })
 
 #Example to visualise certain contrasts via glimma
+glimma_plot_path <- file.path(plot_path, "MD_plots")
+if (!dir.exists(glimma_plot_path)) dir.create(glimma_plot_path, recursive = TRUE)
+
 object_contrasts_4show.df %>% 
   filter(contrast_kind == "treatment_vs_treatment", treatment_rhs == "mock") %>% 
   group_by(contrast) %>% do({
@@ -459,7 +462,7 @@ object_contrasts_4show.df %>%
                                  dds$treatment == "MPXV" ~"#F9CB40"),
          launch = FALSE,
          display.columns =c("GeneID", "padj", "is_signif", "is_hit"), 
-         folder=paste0("MD_plot_", str_replace_all(sel_object_contrast.df$contrast[[1]],":|@", "_")), path = file.path(plot_path, "MD_plots"))
+         folder=paste0("MD_plot_", str_replace_all(sel_object_contrast.df$contrast[[1]],":|@", "_")), path = glimma_plot_path)
     tibble()
          })
 
