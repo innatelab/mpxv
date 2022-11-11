@@ -5,8 +5,8 @@
 
 #The following part is only needed if starting from a fresh environment----
 project_id <- "mpxv"
-data_version <- "20220812"
-fit_version <- "20220813"
+data_version <- "20221105"
+fit_version <- "20221105"
 mstype <- "phospho"
 message("Project ID=", project_id, " data version=", data_version)
 
@@ -75,9 +75,10 @@ base_plot_path <- file.path(analysis_path, 'plots', str_c(data_info$msfolder, "_
 sel_ci_target <- "average"
 
 
-#volcano for all contrasts----
-object_contrasts_4show.df <- object_contrasts.df %>%
+#volcano for all contrasts (check assemble_fits_phospho for the missing steps if starting from the meanfield results)----
+object_contrasts_4show.df <- object_contrasts_nofp.df %>%
   select(-contains("threshold")) %>%
+  mutate(fp_is_hit = FALSE, fp_median = 0) %>% 
   dplyr::inner_join(object_contrasts_thresholds.df) %>%
   dplyr::mutate(is_signif = (p_value <= p_value_threshold) & (abs(median - offset) >= median_threshold),
                 is_hit_nomschecks = is_signif & !is_contaminant,
@@ -390,7 +391,7 @@ dplyr::left_join(sel_objects.df, dplyr::select(msdata_full$ptmngroup_idents, ptm
   })
 
 #plot phosphosites on viral proteins----
-plot_version <- 20220817
+plot_version <- 20221110
 ptm_pvalue_ident_max <- 1E-3
 ptm_pvalue_quant_max <- 1E-2
 ptm_locprob_ident_min <- 0.75
@@ -427,7 +428,8 @@ viral_phospho_intensities.df <- dplyr::filter(fit_stats$object_conditions, var =
                 ptm_status = case_when(is_observed ~ "observed",
                                        is_observed_lowconf ~ "low conf.",
                                        ptm_correct ~ "potential",
-                                       TRUE ~ "N/A") %>% factor(ordered=TRUE, levels=ptm_status_levels)) %>%
+                                       TRUE ~ "N/A") %>% factor(ordered=TRUE, levels=ptm_status_levels),
+                identifier = protein_ac) %>%
     dplyr::mutate(timepoint_label = factor(str_c(timepoint, "h p.i."), levels=str_c(sort(unique(msdata_full$msruns$timepoint_num)), "h p.i.")),
                 shown_ptm_pos =  ptm_pos,
                 shown_median_log2 = pmax(if_else(!is.na(median) & ptm_status %in% c("observed", "low conf."),
@@ -450,6 +452,7 @@ domain_type_color_palette <- c("localisation" = "lemonchiffon4", "function" = "p
 dplyr::group_by(viral_phospho_intensities.df, protein_ac) %>%
   group_walk(function(sel_obj_conds.df, ...){
     viral_gene <- sel_obj_conds.df$genename[[1]]
+    identifier <- sel_obj_conds.df$identifier[[1]]
     message("Plotting PTMs of ", viral_gene)
     p <- ggplot(sel_obj_conds.df, aes(x = ptm_pos, y = shown_median_log2)) +
       geom_segment(aes(xend = ptm_pos, y = 1, yend = shown_median_log2,
@@ -469,14 +472,14 @@ dplyr::group_by(viral_phospho_intensities.df, protein_ac) %>%
       theme_bw_ast(base_family = "") +
       theme(panel.border = element_blank(), panel.grid = element_blank(), axis.line = element_blank()) +
       guides(colour = "none")+
-      ggtitle(str_c("PTMs on ", viral_gene, " protein"),
+      ggtitle(str_c("PTMs on ", viral_gene, " protein, ", identifier),
               subtitle=sel_obj_conds.df$protein_name)
     plot_path <- file.path(analysis_path, "plots", str_c(mstype, '_', data_version, "_", fit_version), str_c("viral_ptm_", plot_version))
     if (!dir.exists(plot_path)) dir.create(plot_path, recursive = TRUE)
     ggsave(p, file = file.path(plot_path, str_c(project_id, "_", mstype, '_', fit_version, "_viral_",
                                                 viral_gene, "_", plot_version,
                                                 ".pdf")),
-           width=6+nrow(sel_obj_conds.df)/15, height=5, device = cairo_pdf, family="Arial")
+           width=12+nrow(sel_obj_conds.df)/15, height=7, device = cairo_pdf, family="Arial")
   })
 
 

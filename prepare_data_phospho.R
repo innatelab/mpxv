@@ -1,12 +1,12 @@
 # Prepare data for the phosphoproteome analysis for HFF cells infected by monkeypox
-# Experiments done in Aug 2022
+# Experiments done in Aug 2022 (new data generated in Nov 2022)
 # Author: Yiqi Huang
 ###############################################################################
 
 project_id <- 'mpxv'
 message('Project ID=', project_id)
-data_version <- "20220812"
-fit_version <- "20220813"
+data_version <- "20221105"
+fit_version <- "20221105"
 mstype <- "phospho"
 message('Dataset version is ', data_version)
 
