@@ -3,8 +3,8 @@
 Sys.setenv(MKL_NUM_THREADS = 1)
 
 project_id <- "mpxv"
-fit_version <- "20220817"
-data_version <- "20220817"
+fit_version <- "20221104"
+data_version <- "20221104"
 
 message("Project ID=", project_id,
         " (data_version=", data_version, " fit_version=", fit_version, ") running on ", Sys.info()["nodename"], ")")
