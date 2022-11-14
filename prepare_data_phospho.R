@@ -6,7 +6,7 @@
 project_id <- 'mpxv'
 message('Project ID=', project_id)
 data_version <- "20221105"
-fit_version <- "20221105"
+fit_version <- "20221111"
 mstype <- "phospho"
 message('Dataset version is ', data_version)
 
@@ -87,32 +87,41 @@ msdata_full$ptmn_locprobs <- dplyr::inner_join(msdata_full$ptmn_locprobs,
                                                dplyr::select(msdata_full$msruns, msrun, msexperiment))
 
 msdata_full$ptmngroup2pepmodstate <- msdata_full$ptmngroup2pepmodstate %>% 
-  dplyr::group_by(pepmodstate_id) %>%
-  mutate(is_specific = n_distinct(ptmngroup_id) == 1L) %>%
-  dplyr::ungroup() %>% 
-  group_by(ptmngroup_id) %>% 
-  mutate(ptmngroup_label = dplyr::first(ptmn_label, order_by = ptmn_id)) %>% 
-  dplyr::ungroup() #TODO this step takes quite a while...how to speed it up?? 
-
+  mutate(is_specific = (ptm_type != "Oxidation")) %>% 
+  group_by(ptmngroup_id, ptm_type) %>% 
+  mutate(ptmngroup_label = dplyr::first(ptmn_label, order_by = ptmn_id),
+         ptmngroup_label = ifelse(n_distinct(ptmn_label)>1, str_c(ptmngroup_label, "..."), ptmngroup_label)) %>% 
+  dplyr::ungroup() #exclude all oxidation sites here
+  
 # add more properties to ptmngroups as it's the object being modeled, note that here the n_ident refers to the peaks not pepmodstates. There could be multiple peaks to one pepmodstate per msrun.
 msdata_full$ptmngroups <- msdata_full$ptmn2ptmngroup %>%
-  group_by(ptmngroup_id) %>% slice_head() %>% 
-  dplyr::left_join(dplyr::select(msdata_full$ptmns, ptmn_id, ptm_id, ptmngroup_label = ptmn_label)) %>% 
-  dplyr::left_join(dplyr::select(dplyr::filter(msdata_full$ptm2gene, ptm_is_reference), ptm_id, ptm_pos, protein_ac, is_viral, is_contaminant)) %>%
-  dplyr::left_join(dplyr::select(msdata_full$proteins, gene_name=genename, protein_ac, protein_code)) %>%
-  dplyr::mutate(ptmngroup_label_no_ptm_type = str_remove(ptmngroup_label, "^[^_]+_")) %>% 
-  ungroup()
+  dplyr::left_join(dplyr::select(msdata_full$ptmns, ptmn_id, ptm_id, ptmn_label)) %>% 
+  dplyr::inner_join(dplyr::select(dplyr::filter(msdata_full$ptm2gene, ptm_is_reference), ptm_id, ptm_pos, protein_ac, is_viral, is_contaminant)) %>%
+  dplyr::left_join(dplyr::select(msdata_full$proteins, gene_name=genename, protein_ac)) %>%
+  mutate(ptmn_label_short = str_remove_all(ptmn_label, "(^[^_]+_)|(_M\\d+$)")) %>% 
+  group_by(ptmngroup_id) %>% 
+  mutate(ptmn_ids = paste(ptmn_id, collapse = ";"),
+         ptm_ids = paste(ptm_id, collapse = ";"),
+         ptm_pos_all = paste(ptm_pos, collapse = ";"),
+         protein_acs = paste(protein_ac, collapse = ";"),
+         gene_names = paste(gene_name, collapse = ";"),
+         ptmns = paste(ptmn_label_short, collapse = ";")
+         ) %>% 
+  left_join(msdata_full$ptmngroup2pepmodstate %>% select(ptmngroup_id, ptmngroup_label)) %>% 
+  select(ptm_type, nselptms,ptmngroup_id, ptmngroup_label, ptmn_id, ptm_pos, protein_ac, gene_name, is_viral, is_contaminant, ptmn_ids, ptm_ids, ptm_pos_all, protein_acs, ptmns ) %>% 
+  slice_head() %>% ungroup() %>% distinct() %>% 
+  dplyr::mutate(ptmngroup_label_no_ptm_type = str_remove(ptmngroup_label, "^[^_]+_"))
 
-msdata_full$ptmngroup_idents <- inner_join(msdata_full$ptmngroups, dplyr::select(msdata_full$ptmn2pepmodstate, ptmn_id, pepmodstate_id)) %>%
+msdata_full$ptmngroup_idents <- inner_join(msdata_full$ptmngroups, dplyr::select(msdata_full$ptmngroup2pepmodstate, ptmngroup_id, pepmodstate_id) %>% distinct()) %>%
   dplyr::inner_join(dplyr::select(msdata_full$pepmodstate_intensities, evidence_id, pepmodstate_id, msrun, msexperiment, intensity, ident_type, psm_pvalue)) %>%
-  dplyr::inner_join(dplyr::select(msdata_full$ptmn_locprobs, ptmn_id, evidence_id, ptm_locprob)) %>%
+  dplyr::inner_join(dplyr::select(msdata_full$ptmn_locprobs, evidence_id, ptm_locprob, ptmn_id)) %>%
   dplyr::mutate(is_quanted = !is.na(intensity),
                 is_idented =  coalesce(ident_type, "") %in% c("ISO-MSMS", "MULTI-MSMS", "MSMS", "MULTI-SECPEP") &
                   coalesce(psm_pvalue, 1) <= data_info$pvalue_ident_max,
                 is_localized = coalesce(ptm_locprob, 0) >= data_info$locprob_ident_min,
                 is_valid_quant = is_quanted & coalesce(ptm_locprob, 0) >= data_info$locprob_min &
                   coalesce(psm_pvalue, 1) <= data_info$pvalue_max) %>%
-  dplyr::group_by(msexperiment, ptmngroup_id, ptmngroup_label, ptm_id, ptm_type) %>%
+  dplyr::group_by(msexperiment, ptmngroup_id, ptmngroup_label, ptm_type) %>%
   dplyr::summarise(n_quanted = sum(is_quanted),
                    n_idented = sum(is_idented),
                    #n_msruns = n_distinct(msrun),

@@ -6,7 +6,7 @@
 #The following part is only needed if starting from a fresh environment----
 project_id <- "mpxv"
 data_version <- "20221105"
-fit_version <- "20221105"
+fit_version <- "20221111"
 mstype <- "phospho"
 message("Project ID=", project_id, " data version=", data_version)
 
@@ -43,7 +43,7 @@ object_contrasts_thresholds.df <- dplyr::select(contrasts.df, offset, offset_pri
                                   contrast_type == "comparison" ~ 1E-2,
                                   TRUE ~ NA_real_),
     median_threshold = case_when(contrast_type == "filtering" ~ pmax(2.0, 2.0 + abs(offset - offset_prior)),
-                                 contrast_type == "comparison" ~ pmax(0.5, 0.25 + abs(offset - offset_prior)),
+                                 contrast_type == "comparison" ~ pmax(1.0, 0.25 + abs(offset - offset_prior)),
                                  TRUE ~ NA_real_),
     median_max = case_when(contrast_type == "filtering" ~ 12,
                            contrast_type == "comparison" ~ 6,
@@ -98,7 +98,7 @@ object_contrasts_4show.df <- object_contrasts_nofp.df %>%
                                                 is_hit_nomschecks | !is_signif),
                 truncation_type = point_truncation_type(truncation, is_signif),
                 show_label = coalesce(is_hit_nomschecks, FALSE),
-                short_label = str_remove_all(object_label, "Oxidation_|Phospho_|_M\\d$")) %>%
+                short_label = str_remove_all(object_label, "Oxidation_|Phospho_|_M\\d($|\\.\\.\\.)")) %>%
   tidyr::separate(contrast, into = c("group1", "group2"), sep = "_vs_", remove = FALSE) %>%
   dplyr::group_by(contrast, ci_target) %>%
   dplyr::mutate(show_label = if_else(rep.int(sum(show_label & median > 0) >= 400L, n()), is_hit, show_label)) %>% #what does this do?
@@ -173,7 +173,7 @@ group_by(object_contrasts_4show.df, ci_target, contrast,
              })
 
 #Making timecourse for all proteins. The dots are from the original peptide intensity values of MQ.----
-#sel_objects.df <- dplyr::filter(modelobjs_df, str_detect(gene_name, "DDX21") & ptm_type == "Phospho")  #This is used for debugging
+#sel_objects.df <- dplyr::filter(modelobjs_df, str_detect(gene_name, "ZC3H13") & ptm_type == "Phospho")  #This is used for debugging
 #sel_objects.df <- dplyr::semi_join(modelobjs_df, dplyr::select(fit_diff, object_id), by = "object_id")
 sel_objects.df <- dplyr::semi_join(modelobjs_df, dplyr::select(fit_stats$objects, object_id), by="object_id")#This is all!
 
@@ -228,7 +228,10 @@ dplyr::left_join(sel_objects.df, dplyr::select(msdata_full$ptmngroup_idents, ptm
                     ms_status = case_when(locprob_valid & pvalue_valid ~ "valid",
                                           !locprob_valid & pvalue_valid ~ "bad PTM loc",
                                           locprob_valid & !pvalue_valid ~ "bad ident",
-                                          TRUE ~ 'bad ident&loc'))
+                                          TRUE ~ 'bad ident&loc')) %>% 
+      group_by(object_id) %>% 
+      mutate(total_pepmodstates = n_distinct(pepmodstate_id)) %>% 
+      ungroup()
     #print(sel_obj_msdata.df)
     if (nrow(sel_obj_conds.df) > 0) {
       p <-
@@ -252,7 +255,8 @@ dplyr::left_join(sel_objects.df, dplyr::select(msdata_full$ptmngroup_idents, ptm
         scale_fill_manual(values=treatment_palette) +
         scale_y_log10("PTM Intensity") +
         ggtitle(str_c(sel_obj.df$object_label, " timecourse"),
-                subtitle=str_c(sel_obj.df$protein_description, " (npepmodstates=", sel_obj.df$n_pepmodstates, ")")) +
+                subtitle=str_c(sel_obj_msdata.df$ptmns, "\n",
+                sel_obj.df$protein_description, " (total npepmodstates=", unique(sel_obj_msdata.df$total_pepmodstates), ")")) +
         facet_wrap( ~ object_label+pepmodstate_seq, ncol =1, scales = "free")
       plot_path <- file.path(base_plot_path,
                              str_c("timecourse_", sel_ptm_type, "_", sel_ci_target,
@@ -276,7 +280,7 @@ cluster_copy(plot_cluster, c("data_info", "analysis_path", "base_plot_path", "ba
                              "point_truncation_shape_palette", "point_truncation_size_palette",
                              "treatment_palette",
                              "sel_ci_target", "modelobj", "quantobj", "modelobj_idcol", "quantobj_idcol", "modelobjs_df", "modelobj_suffix",
-                             "fp.env", "ptmngroup2protregroup.df", "fp_treatment_palette",
+                             #"fp.env", "ptmngroup2protregroup.df", "fp_treatment_palette",
                              "msglm_def", "fit_stats", "msdata", "msdata_full", "object_contrasts_4show.df"))
 
 dplyr::left_join(sel_objects.df, dplyr::select(msdata_full$ptmngroup_idents, ptmngroup_id, n_pepmodstates)) %>% unique() %>% 
@@ -329,7 +333,10 @@ dplyr::left_join(sel_objects.df, dplyr::select(msdata_full$ptmngroup_idents, ptm
                     ms_status = case_when(locprob_valid & pvalue_valid ~ "valid",
                                           !locprob_valid & pvalue_valid ~ "bad PTM loc",
                                           locprob_valid & !pvalue_valid ~ "bad ident",
-                                          TRUE ~ 'bad ident&loc'))
+                                          TRUE ~ 'bad ident&loc')) %>% 
+      group_by(object_id) %>% 
+      mutate(total_pepmodstates = n_distinct(pepmodstate_id)) %>% 
+      ungroup()
     #print(sel_obj_msdata.df)
     if (nrow(sel_obj_conds.df) > 0) {
       p <-
@@ -351,11 +358,9 @@ dplyr::left_join(sel_objects.df, dplyr::select(msdata_full$ptmngroup_idents, ptm
         scale_shape_manual(values=c("valid"=19, "bad PTM loc"=8, "bad ident"=1, "bad ident&loc"=4)) +
         scale_fill_manual(values=treatment_palette) +
         scale_y_log10("PTM Intensity") +
-        ggtitle(str_c(sel_obj.df$object_label, " timecourse"),
-                subtitle=str_c(sel_obj.df$protein_description, " (npepmodstates=", sel_obj.df$n_pepmodstates, ")")) +
         facet_wrap( ~ object_label+pepmodstate_seq, ncol =1, scales = "free")
       
-      h <- 2+8*n_distinct(sel_obj_conds.df$pepmodstate_id)
+      h <- as.integer(2+3*n_distinct(sel_obj_msdata.df$pepmodstate_id))
       
       if (exists("fp.env")) {
         sel_fp_conds.df <- semi_join(fp.env$fit_stats$object_conditions, semi_join(ptmngroup2protregroup.df, sel_obj.df), by = c("protregroup_id" = "fp_protregroup_id")) %>%
@@ -374,24 +379,25 @@ dplyr::left_join(sel_objects.df, dplyr::select(msdata_full$ptmngroup_idents, ptm
             scale_fill_manual(values=fp_treatment_palette) +
             ylab("Protein Intensity")
           p <- ggpubr::ggarrange(p, fp_plot, ncol=1, heights=c(0.6, 0.3))
-          h <- h + 6L
+          h <- h + 2L
         }
       }
       p <- p + ggtitle(str_c(sel_obj.df$object_label, " timecourse"),
-                       subtitle=str_c(sel_obj.df$protein_description, " (npepmodstates=", sel_obj.df$n_pepmodstates, ")"))
+                       subtitle=str_c(sel_obj_msdata.df$ptmns, "\n",
+                       sel_obj.df$protein_description, " (total npepmodstates=", unique(sel_obj_msdata.df$total_pepmodstates), ")"))
       plot_path <- file.path(base_plot_path,
                              str_c("timecourse_", sel_ptm_type, "_", sel_ci_target,
                                    modelobj_suffix, if_else(sel_obj.df$is_viral[[1]], "/viral", "")))
       if (!dir.exists(plot_path)) {dir.create(plot_path, recursive = TRUE)}
       ggsave(p, file = file.path(plot_path, str_c(project_id, "_", data_info$msfolder, '_', fit_version, "_",
                                                   str_replace(sel_obj.df$object_label[[1]], "/", "-"), "_", sel_obj.df$object_id[[1]], "_long.pdf")),
-             width=6, height=h, limitsize=FALSE, device = cairo_pdf)
+             width=8, height=h, limitsize=FALSE, device = cairo_pdf)
     }
     tibble()
   })
 
 #plot phosphosites on viral proteins----
-plot_version <- 20221110
+plot_version <- 20221113
 ptm_pvalue_ident_max <- 1E-3
 ptm_pvalue_quant_max <- 1E-2
 ptm_locprob_ident_min <- 0.75
@@ -399,12 +405,12 @@ ptm_locprob_quant_min <- 0.5
 
 ptm_status_levels <- c("N/A", "potential", "low conf.", "observed")
 
-ptmngroupXcondition_stats.df <- dplyr::select(msdata_full$ptmngroups, is_viral, ptm_type, ptmngroup_id, ptmn_id, ptm_id) %>% dplyr::filter(is_viral) %>%
+ptmngroupXcondition_stats.df <- dplyr::select(msdata_full$ptmngroups, is_viral, ptm_type, ptmngroup_id, ptmn_id) %>% dplyr::filter(is_viral) %>%
   dplyr::left_join(msdata_full$ptmn2pepmodstate) %>%
   dplyr::left_join(msdata_full$pepmodstate_intensities) %>%
   dplyr::left_join(dplyr::select(msdata_full$ptmn_locprobs, evidence_id, ptmn_id, ptm_locprob, msrun, ptm_AA_seq)) %>%
   dplyr::left_join(msdata_full$msruns) %>%
-  dplyr::group_by(ptm_type, ptm_id, ptmn_id, ptmngroup_id, condition) %>%
+  dplyr::group_by(ptm_type, ptmn_id, ptmngroup_id, condition) %>%
   dplyr::summarise(ptm_pvalue_min = min(psm_pvalue, na.rm=TRUE),
                    ptm_locprob_max = max(ptm_locprob, na.rm=TRUE),
                    n_idented_and_localized  = n_distinct(str_c(msrun, " ", pepmodstate_id)[(coalesce(psm_pvalue, 1) <= ptm_pvalue_ident_max) &
@@ -462,7 +468,7 @@ dplyr::group_by(viral_phospho_intensities.df, protein_ac) %>%
       #scale_color_manual("Virus", values = ptm_typeXstatus_color_palette) + new_scale_color() +
       geom_text_repel(data=sel_obj_conds.df,
                       aes(label = ptm_label, color=ptm_type),
-                      min.segment.length=0.2, segment.alpha=0.5, segment.size=0.25, nudge_y = 1, size=4) +
+                      min.segment.length=0.2, segment.alpha=0.5, segment.size=0.25, nudge_y = 1, size=4, max.overlaps = Inf) +
       scale_color_manual("PTM", values = ptm_palette) +
       scale_fill_manual("PTM", values = ptm_typeXstatus_fill_palette) +
       scale_shape_manual("PTM", values = ptm_typeXstatus_shape_palette) +

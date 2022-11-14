@@ -4,7 +4,7 @@ Sys.setenv(MKL_NUM_THREADS = 1)
 
 project_id <- "mpxv"
 data_version <- "20221105"
-fit_version <- "20221105"
+fit_version <- "20221111"
 
 
 message("Project ID=", project_id,
@@ -26,7 +26,7 @@ require(msglm)
 require(stringr)
 require(furrr)
 
-plan(multicore, workers = 32)
+plan(multicore, workers = 45)
 
 modelobj <- msglm_def$modelobject
 quantobj <- msglm_def$quantobject

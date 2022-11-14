@@ -6,7 +6,7 @@
 project_id <- 'mpxv'
 message('Project ID=', project_id)
 data_version <- "20221105"
-fit_version <- "20221105"
+fit_version <- "20221111"
 mstype <- "phospho"
 message("Assembling fit results for project ", project_id,
         " (dataset v", data_version, ", fit v", fit_version, ")")
@@ -131,7 +131,7 @@ object_contrasts_thresholds.df <- contrasts.df %>%
                                   contrast_type == "comparison" ~ 1E-2,
                                   TRUE ~ NA_real_),
     median_threshold = case_when(contrast_type == "filtering" ~ pmax(2.0, 2.0 + abs(offset - offset_prior)),
-                                 contrast_type == "comparison" ~ pmax(0.5, 0.25 + abs(offset - offset_prior)),
+                                 contrast_type == "comparison" ~ pmax(1.0, 0.25 + abs(offset - offset_prior)),
                                  TRUE ~ NA_real_),
     median_max = case_when(contrast_type == "filtering" ~ 12,
                            contrast_type == "comparison" ~ 6,
@@ -229,24 +229,24 @@ ptm_annots.df <- read_tsv(file.path(data_path, str_c(mstype, "_", data_version),
 
 object_contrasts_report.df <- object_contrasts_nofp.df %>%
   filter(str_detect(contrast, "MPXV_vs_mock")) %>% 
-  left_join(select(msdata$ptmngroups, ptmngroup_id, ptm_id, protein_ac)) %>%
+  left_join(select(msdata$ptmngroups, ptmngroup_id, ptmn_id, ptmn_ids, ptmns, protein_ac, ptm_pos)) %>%
   left_join(msdata_full$ptm2gene) %>% 
   left_join(ptm_annots.df) %>%
   left_join(select(msdata_full$proteins, protein_ac, protein_name)) %>% 
-  select(ptmngroup_id, gene_name = genename, protein_ac, protein_name, ptm_type, ptm_AA_seq, ptm_pos, 
-         ptmngroup_label, short_label, protein_ac,
+  select(ptmngroup_id, ptmn_ids, gene_name = genename, protein_ac, protein_name, ptm_type, ptm_AA_seq, ptm_pos, 
+         ptmngroup_label, ptmns, short_label, protein_ac,
          flanking_15AAs, ptm_is_known, domain, 
          kinase_gene_names, reg_function, reg_prot_iactions, reg_other_iactions, reg_pubmed_ids, diseases,
          ci_target, contrast,
-         is_viral, median, mean, sd, p_value,
+         is_viral, is_contaminant, median, mean, sd, p_value,
          is_signif, is_hit_nomschecks, #is_hit_nofp, 
          is_hit, change) %>%
   tidyr::extract(contrast, c("timepoint"), ".*@(\\d+h)", remove = FALSE) %>%
   mutate(timepoint = factor(timepoint, levels = c("6h", "12h", "24h"))) %>% 
   arrange(timepoint) %>% 
-  pivot_wider(c(ci_target, ptmngroup_id, gene_name, protein_name, protein_ac, is_viral, 
+  pivot_wider(c(ci_target, ptmngroup_id, gene_name, protein_name, protein_ac, is_viral, is_contaminant,
                 ptm_AA_seq, ptm_pos, 
-                ptmngroup_label, short_label, flanking_15AAs, ptm_is_known, 
+                ptmngroup_label, ptmns, short_label, flanking_15AAs, ptm_is_known, 
                 kinase_gene_names, reg_function, reg_prot_iactions, reg_other_iactions, reg_pubmed_ids, diseases),
               names_from = "timepoint", values_from = c("is_hit", #"is_hit_nofp", 
                                                         "change", "median", "p_value", "sd")) %>%
@@ -255,18 +255,19 @@ object_contrasts_report.df <- object_contrasts_nofp.df %>%
 
 write_tsv(object_contrasts_report.df, file.path(analysis_path, "reports", paste0(project_id, '_phospho_contrasts_report_', fit_version, '_wide.txt')))
 
-object_contrasts_report_long.df <- object_contrasts.df %>%
-  left_join(select(msdata$ptmngroups, ptmngroup_id, ptm_id, protein_ac)) %>%
+object_contrasts_report_long.df <- object_contrasts_nofp.df %>%
+  left_join(select(msdata$ptmngroups, ptmngroup_id, ptmn_id, ptmn_ids, ptmns, protein_ac, ptm_pos)) %>%
   left_join(msdata_full$ptm2gene) %>% 
   left_join(ptm_annots.df) %>%
   left_join(select(msdata_full$proteins, protein_ac, protein_name)) %>% 
-  select(ptmngroup_id, gene_name = genename, protein_ac, protein_name, ptm_type, ptm_AA_seq, ptm_pos, 
-         ptmngroup_label, short_label, protein_ac,
+  select(ptmngroup_id, ptmn_ids, gene_name = genename, protein_ac, protein_name, ptm_type, ptm_AA_seq, ptm_pos, 
+         ptmngroup_label, ptmns, short_label, protein_ac,
          flanking_15AAs, ptm_is_known, domain, 
          kinase_gene_names, reg_function, reg_prot_iactions, reg_other_iactions, reg_pubmed_ids, diseases,
          ci_target, contrast,
-         is_viral, median, mean, sd, p_value,
-         is_signif, is_hit_nomschecks, is_hit_nofp, is_hit, change)
+         is_viral, is_contaminant, median, mean, sd, p_value,
+         is_signif, is_hit_nomschecks, #is_hit_nofp, 
+         is_hit, change)
 
 write_tsv(object_contrasts_report_long.df, file.path(analysis_path, "reports", paste0(project_id, '_phospho_contrasts_report_', fit_version, '_long.txt')))
 
