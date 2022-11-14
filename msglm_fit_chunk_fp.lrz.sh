@@ -34,8 +34,8 @@ IMAGES_PATH=$(realpath $HOME)
 CHUDIS_PATH=$HOME/projects/cool_chunk_dispatcher
 
 PROJECT_ID=mpxv
-DATA_VERSION=20220817
-FIT_VERSION=20220817
+DATA_VERSION=20221104
+FIT_VERSION=20221104
 
 srun --wait=0 --no-kill --distribution=block --exclusive=user \
      -o $SCRATCH/logs/$PROJECT_ID/%x_%j_%t.log \
