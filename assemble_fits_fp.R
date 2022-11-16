@@ -5,8 +5,8 @@
 
 project_id <- 'mpxv'
 message('Project ID=', project_id)
-data_version <- "20220817"
-fit_version <- "20220817"
+data_version <- "20221104"
+fit_version <- "20221104"
 mstype <- 'fp'
 message("Assembling fit results for project ", project_id,
         " (dataset v", data_version, ", fit v", fit_version, ")")
@@ -160,7 +160,7 @@ contrasts.df <- dplyr::ungroup(msglm_def$contrasts) %>%
 object_contrasts_thresholds.df <- contrasts.df %>%
   mutate(p_value_threshold = case_when(TRUE ~ 0.01),
          #p_value_threshold_lesser = case_when(TRUE ~ 0.01),
-         median_threshold = case_when(TRUE ~ 0.25)#,
+         median_threshold = case_when(TRUE ~ 0.5)#,
          #median_threshold_lesser = case_when(TRUE ~ 0.125)
          )
 
@@ -168,10 +168,11 @@ object_contrasts.df <- fit_contrasts$object_conditions %>%
   inner_join(pre_object_contrasts.df) %>% 
   dplyr::filter(var %in% c("obj_cond_labu", "obj_cond_labu_replCI")) %>%
   dplyr::inner_join(object_contrasts_thresholds.df) %>%
-  dplyr::mutate(is_signif = p_value <= p_value_threshold & abs(median) >= median_threshold,
+  dplyr::mutate(is_valid_comparison = (pmax(nmsruns_quanted_lhs_max, nmsruns_quanted_rhs_max)>=3), #quantified in 3/5 on either side
+                is_signif = p_value <= p_value_threshold & abs(median) >= median_threshold,
                 #is_signif_lesser = p_value <= p_value_threshold_lesser & abs(median) >= median_threshold_lesser,
                 is_hit_nomschecks = is_signif & !is_contaminant & !is_reverse,
-                is_hit = is_hit_nomschecks & (pmax(nmsruns_quanted_lhs_max, nmsruns_quanted_rhs_max)>=3), #quantified in 3/5 on either side
+                is_hit = is_hit_nomschecks & is_valid_comparison, 
                 change = if_else(is_signif, if_else(median < 0, "-", "+"), ".")) 
 
 object_contrast_stats.df <- dplyr::group_by(object_contrasts.df, contrast, contrast_type, ci_target) %>%
@@ -214,7 +215,7 @@ objects4report.df <- dplyr::select(msdata$objects, any_of(report_cols)) %>%
 
 object_contrasts_report.df <- objects4report.df %>%
   dplyr::left_join(pivot_wider(object_contrasts.df, c(ci_target, object_id),
-                               names_from = "contrast", values_from = c("is_hit", "change", "median", "p_value", "sd"),
+                               names_from = "contrast", values_from = c("change", "is_valid_comparison", "is_hit",  "median", "p_value", "sd"),
                                names_sep=".")) %>%
   dplyr::arrange(gene_names, majority_protein_acs, ci_target)
 
@@ -222,7 +223,7 @@ write_tsv(object_contrasts_report.df,
           file.path(analysis_path, "reports", paste0(project_id, '_', mstype, '_contrasts_report_', fit_version, '_wide.txt')))
 
 object_contrasts_long_report.df <- objects4report.df %>%
-  dplyr::left_join(select(object_contrasts.df, contrast, ci_target, object_id, is_hit, change, median, p_value, sd)) %>%
+  dplyr::left_join(select(object_contrasts.df, contrast, ci_target, object_id, change, is_valid_comparison, is_hit,  median, p_value, sd)) %>%
   dplyr::left_join(dplyr::select(contrasts.df, contrast, treatment_lhs, treatment_rhs)) %>%
   tidyr::extract(contrast, c("timepoint"), ".*@(\\d+h)", remove = FALSE) %>%
   mutate(timepoint = factor(timepoint, levels = c("6h", "12h", "24h"))) %>% 
@@ -236,7 +237,8 @@ fp_rnaseq_combi_long.df <- object_contrasts_long_report.df %>%
   left_join(rnaseq_genes2protacs.df) %>% 
   left_join(select(object_contrasts_4show.df, GeneID, contrast, rnaseq_log2FC = log2FoldChange, rnaseq_padj = padj, rnaseq_hit = is_hit, rnaseq_change = change ))
 
-write_tsv(fp_rnaseq_combi_long.df,
+write_tsv(object_contrasts_long_report.df,
+  #fp_rnaseq_combi_long.df,
           file.path(analysis_path, "reports", paste0(project_id, '_', mstype, '_contrasts_report_', fit_version, '_long.txt')))
 
 

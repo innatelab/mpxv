@@ -75,7 +75,7 @@ message('Done.')
 # additional filter for hits ----
 obj_conditions.df <- expand(fit_stats$object_conditions, ptmngroup_id, condition) %>%
   dplyr::inner_join(msdata$msruns) %>%
-  dplyr::inner_join(msdata_full$ptmngroup2pepmodstate) %>%
+  dplyr::left_join(msdata_full$ptmngroup2pepmodstate) %>%
   dplyr::left_join(msdata_full$pepmodstate_intensities) %>%
   dplyr::mutate(is_quanted = !is.na(intensity),
                 is_idented = (coalesce(psm_pvalue, 1) <= data_info$pvalue_ident_max)) %>%
@@ -93,10 +93,10 @@ contrastXcondition.df <- as_tibble(as.table(msglm_def$conditionXmetacondition)) 
 pre_object_contrasts.df <- dplyr::inner_join(obj_conditions.df, contrastXcondition.df) %>%
   dplyr::mutate(is_lhs = n > 0) %>%
   dplyr::group_by(object_id, contrast, is_lhs) %>%
-  dplyr::summarise(has_quanted = any(!is.na(nmsruns_quanted)),
+  dplyr::summarise(has_quanted = any(nmsruns_quanted != 0),
                    nmsruns_quanted_min = min(nmsruns_quanted, na.rm=TRUE),
                    nmsruns_quanted_max = max(nmsruns_quanted, na.rm=TRUE),
-                   has_idented = any(!is.na(nmsruns_idented)),
+                   has_idented = any(nmsruns_idented != 0),
                    nmsruns_idented_min = min(nmsruns_idented, na.rm=TRUE),
                    nmsruns_idented_max = max(nmsruns_idented, na.rm=TRUE)) %>%
   dplyr::ungroup() %>%
@@ -131,7 +131,7 @@ object_contrasts_thresholds.df <- contrasts.df %>%
                                   contrast_type == "comparison" ~ 1E-2,
                                   TRUE ~ NA_real_),
     median_threshold = case_when(contrast_type == "filtering" ~ pmax(2.0, 2.0 + abs(offset - offset_prior)),
-                                 contrast_type == "comparison" ~ pmax(1.0, 0.25 + abs(offset - offset_prior)),
+                                 contrast_type == "comparison" ~ pmax(0.5, 0.25 + abs(offset - offset_prior)),
                                  TRUE ~ NA_real_),
     median_max = case_when(contrast_type == "filtering" ~ 12,
                            contrast_type == "comparison" ~ 6,
@@ -139,23 +139,24 @@ object_contrasts_thresholds.df <- contrasts.df %>%
   )
 
 object_contrasts_nofp.df <- fit_contrasts$object_conditions %>%
-  inner_join(pre_object_contrasts.df) %>% 
+  left_join(pre_object_contrasts.df) %>% 
   dplyr::filter(var %in% c("obj_cond_labu", "obj_cond_labu_replCI")) %>%
   dplyr::inner_join(object_contrasts_thresholds.df) %>%
-  dplyr::mutate(is_signif = (p_value <= p_value_threshold) & (abs(median - offset) >= median_threshold),
+  dplyr::mutate(is_valid_comparison = (nmsruns_quanted_lhs_max >= 3) | (nmsruns_quanted_rhs_max >= 3),
+                is_signif = (p_value <= p_value_threshold) & (abs(median - offset) >= median_threshold),
                 is_hit_nomschecks = is_signif & !is_contaminant,
-                is_hit = is_hit_nomschecks & ((nmsruns_quanted_lhs_max >= 3) | (nmsruns_quanted_rhs_max >= 3)), 
+                is_hit = is_hit_nomschecks & is_valid_comparison, 
                 mean_trunc = pmax(-median_max, pmin(median_max, mean - offset)) + offset,
                 median_trunc = pmax(-median_max, pmin(median_max, median - offset)) + offset,
                 short_label = str_remove_all(object_label, "Oxidation_|Phospho_|_M\\d$"),
-                change = if_else(is_signif, if_else(median < 0, "-", "+"), ".")) 
+                change = if_else(is_signif, if_else(median < 0, "-", "+"), "."))
 
 #include fp information
 require(rlang)
 fp.env <- new_environment()
-load(file.path(results_path, str_c(project_id, "_msglm_fit_", "fp_20220817", ".RData")), envir = fp.env)
-load(file.path(scratch_path, str_c(project_id, "_msdata_full_", "fp_20220817", ".RData")), envir = fp.env)
-load(file.path(scratch_path, str_c(project_id, "_msglm_data_", "fp_20220817", ".RData")), envir = fp.env)
+load(file.path(results_path, str_c(project_id, "_msglm_fit_", "fp_20221104", ".RData")), envir = fp.env)
+load(file.path(scratch_path, str_c(project_id, "_msdata_full_", "fp_20221104", ".RData")), envir = fp.env)
+load(file.path(scratch_path, str_c(project_id, "_msglm_data_", "fp_20221104", ".RData")), envir = fp.env)
 fp.env$obj_labu_shift <- fp.env$msdata$pepmodstate_mscalib$zShift
 
 fp_object_contrasts.df <- dplyr::select(fp.env$object_contrasts.df,
@@ -165,17 +166,17 @@ fp_object_contrasts.df <- dplyr::select(fp.env$object_contrasts.df,
                                         fp_is_hit=is_hit, 
                                         fp_change=change) 
 
-ptmngroup2protregroup.df <- dplyr::select(msdata_full$ptm2gene, ptm_id, protein_ac) %>%
+ptmngroup2protregroup.df <- dplyr::select(msdata_full$ptm2gene, ptm_id, protein_ac, ptm_pos) %>%
   dplyr::left_join(fp.env$msdata_full$protein2protregroup) %>%
   dplyr::left_join(dplyr::select(fp.env$msdata_full$protregroups, protregroup_id, npepmods_unique)) %>%
   dplyr::arrange(desc(npepmods_unique)) %>%
   dplyr::distinct() %>%
   dplyr::arrange(ptm_id, desc(is_majority), desc(npepmods_unique), protein_ac_rank) %>%
-  dplyr::group_by(ptm_id) %>%
+  dplyr::group_by(ptm_id, ptm_pos) %>%
   dplyr::filter(row_number() == 1L) %>%
   dplyr::ungroup() %>%
-  dplyr::select(ptm_id, fp_protregroup_id=protregroup_id) %>% 
-  dplyr::left_join(dplyr::select(msdata_full$ptmngroups, ptm_id, ptmngroup_id))
+  dplyr::select(ptm_id, ptm_pos, protein_ac, fp_protregroup_id=protregroup_id) %>% 
+  dplyr::left_join(dplyr::select(msdata_full$ptmngroups, ptmngroup_id, protein_ac, ptm_pos))
 
 object_contrasts.df <- dplyr::left_join(object_contrasts_nofp.df, ptmngroup2protregroup.df) %>%
   dplyr::left_join(fp_object_contrasts.df) %>%
@@ -189,7 +190,7 @@ object_contrasts.df <- dplyr::left_join(object_contrasts_nofp.df, ptmngroup2prot
                                      is_hit ~ "hit", 
                                      TRUE ~ "non-hit")) 
 
-object_contrast_stats.df <- dplyr::group_by(object_contrasts_nofp.df, contrast, contrast_type, ci_target) %>%
+object_contrast_stats.df <- dplyr::group_by(object_contrasts.df, contrast, contrast_type, ci_target) %>%
   dplyr::summarise(p_value_001 = quantile(p_value, 0.001),
                    p_value_01 = quantile(p_value, 0.01),
                    p_value_05 = quantile(p_value, 0.05),
@@ -204,15 +205,17 @@ object_contrast_stats.df <- dplyr::group_by(object_contrasts_nofp.df, contrast, 
 object_contrasts_wide.df <- tidyr::pivot_wider(object_contrasts.df,
                                         id_cols = c("ci_target", "object_id", "object_label", "is_viral"),
                                         names_from = "contrast", names_sep = ".",
-                                        values_from = c("median", "mean", "sd", "p_value", "is_hit", "change"))
-ggplot(dplyr::filter(object_contrasts_wide.df, ci_target=="average" &
-                       `is_hit.MPXV_vs_mock@12h` #& `is_hit.MPXV_vs_mock@6h` #&
+                                        values_from = c("median", "mean", "sd", "p_value", "is_hit", "is_valid_comparison", "change"))
+ggplot(dplyr::filter(object_contrasts_wide.df, ci_target=="average",
+                       `is_valid_comparison.MPXV_vs_mock@6h` & `is_valid_comparison.MPXV_vs_mock@12h` #&
                                                     #between(`median.MPXV_vs_mock@12h`, -3, 3) &
                                                     #between(`median.MPXV_vs_mock@6h`, -3, 3))
-                                     )) +
-  geom_point(aes(x = `median.MPXV_vs_mock@6h`, y = `median.MPXV_vs_mock@12h`),
-             alpha = 0.05, size=0.3) +
-  geom_abline(slope = 1, intercept = 0, color = "firebrick") + theme_bw_ast()
+                                     ),
+       aes(x = `median.MPXV_vs_mock@6h`, y = `median.MPXV_vs_mock@12h`)) +
+  geom_point(alpha = 0.1, size=0.3) +
+  #geom_smooth(method = "lm")+
+  #geom_abline(slope = 1, intercept = 0, color = "firebrick") + 
+  theme_bw_ast()
 
 rfit_filepath <- file.path(results_path, paste0(project_id, '_msglm_fit_', mstype, "_", fit_version, '.RData'))
 results_info <- list(project_id = project_id, data_version = data_version,
@@ -227,7 +230,7 @@ require(purrr)
 
 ptm_annots.df <- read_tsv(file.path(data_path, str_c(mstype, "_", data_version), str_c("ptm_extractor_", data_version), str_c("ptm_annots_",data_version, ".txt")))
 
-object_contrasts_report.df <- object_contrasts_nofp.df %>%
+object_contrasts_report.df <- object_contrasts.df %>%
   filter(str_detect(contrast, "MPXV_vs_mock")) %>% 
   left_join(select(msdata$ptmngroups, ptmngroup_id, ptmn_id, ptmn_ids, ptmns, protein_ac, ptm_pos)) %>%
   left_join(msdata_full$ptm2gene) %>% 
@@ -239,7 +242,7 @@ object_contrasts_report.df <- object_contrasts_nofp.df %>%
          kinase_gene_names, reg_function, reg_prot_iactions, reg_other_iactions, reg_pubmed_ids, diseases,
          ci_target, contrast,
          is_viral, is_contaminant, median, mean, sd, p_value,
-         is_signif, is_hit_nomschecks, #is_hit_nofp, 
+         is_signif, is_valid_comparison, is_hit_nomschecks, is_hit_nofp, 
          is_hit, change) %>%
   tidyr::extract(contrast, c("timepoint"), ".*@(\\d+h)", remove = FALSE) %>%
   mutate(timepoint = factor(timepoint, levels = c("6h", "12h", "24h"))) %>% 
@@ -248,14 +251,14 @@ object_contrasts_report.df <- object_contrasts_nofp.df %>%
                 ptm_AA_seq, ptm_pos, 
                 ptmngroup_label, ptmns, short_label, flanking_15AAs, ptm_is_known, 
                 kinase_gene_names, reg_function, reg_prot_iactions, reg_other_iactions, reg_pubmed_ids, diseases),
-              names_from = "timepoint", values_from = c("is_hit", #"is_hit_nofp", 
-                                                        "change", "median", "p_value", "sd")) %>%
+              names_from = "timepoint", values_from = c("is_valid_comparison", "change", "is_hit", "is_hit_nofp", 
+                                                         "median", "p_value", "sd")) %>%
   replace_na(list(ptm_is_known = FALSE)) %>% 
   dplyr::arrange(gene_name, ptm_pos)
 
 write_tsv(object_contrasts_report.df, file.path(analysis_path, "reports", paste0(project_id, '_phospho_contrasts_report_', fit_version, '_wide.txt')))
 
-object_contrasts_report_long.df <- object_contrasts_nofp.df %>%
+object_contrasts_report_long.df <- object_contrasts.df %>%
   left_join(select(msdata$ptmngroups, ptmngroup_id, ptmn_id, ptmn_ids, ptmns, protein_ac, ptm_pos)) %>%
   left_join(msdata_full$ptm2gene) %>% 
   left_join(ptm_annots.df) %>%
@@ -266,7 +269,7 @@ object_contrasts_report_long.df <- object_contrasts_nofp.df %>%
          kinase_gene_names, reg_function, reg_prot_iactions, reg_other_iactions, reg_pubmed_ids, diseases,
          ci_target, contrast,
          is_viral, is_contaminant, median, mean, sd, p_value,
-         is_signif, is_hit_nomschecks, #is_hit_nofp, 
+         is_valid_comparison, is_signif, is_hit_nomschecks, is_hit_nofp, 
          is_hit, change)
 
 write_tsv(object_contrasts_report_long.df, file.path(analysis_path, "reports", paste0(project_id, '_phospho_contrasts_report_', fit_version, '_long.txt')))
