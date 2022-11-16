@@ -114,7 +114,7 @@ msdata_full$ptmngroups <- msdata_full$ptmn2ptmngroup %>%
 
 msdata_full$ptmngroup_idents <- inner_join(msdata_full$ptmngroups, dplyr::select(msdata_full$ptmngroup2pepmodstate, ptmngroup_id, pepmodstate_id) %>% distinct()) %>%
   dplyr::inner_join(dplyr::select(msdata_full$pepmodstate_intensities, evidence_id, pepmodstate_id, msrun, msexperiment, intensity, ident_type, psm_pvalue)) %>%
-  dplyr::inner_join(dplyr::select(msdata_full$ptmn_locprobs, evidence_id, ptm_locprob, ptmn_id)) %>%
+  dplyr::left_join(dplyr::select(msdata_full$ptmn_locprobs, evidence_id, ptm_locprob, ptmn_id)) %>%
   dplyr::mutate(is_quanted = !is.na(intensity),
                 is_idented =  coalesce(ident_type, "") %in% c("ISO-MSMS", "MULTI-MSMS", "MSMS", "MULTI-SECPEP") &
                   coalesce(psm_pvalue, 1) <= data_info$pvalue_ident_max,
