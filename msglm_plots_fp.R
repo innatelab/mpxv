@@ -64,7 +64,7 @@ object_contrasts_thresholds.df <- dplyr::select(contrasts.df, offset, offset_pri
                                   contrast_type == "comparison" ~ 1E-2,
                                   TRUE ~ NA_real_),
     median_threshold = case_when(contrast_type == "filtering" ~ pmax(2.0, 2.0 + abs(offset - offset_prior)),
-                                 contrast_type == "comparison" ~ pmax(0.25, 0.25 + abs(offset - offset_prior)),
+                                 contrast_type == "comparison" ~ pmax(0.5, 0.25 + abs(offset - offset_prior)),
                                  TRUE ~ NA_real_),
     median_max = case_when(contrast_type == "filtering" ~ 12,
                            contrast_type == "comparison" ~ 6,
