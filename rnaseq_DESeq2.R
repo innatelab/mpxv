@@ -4,8 +4,8 @@
 
 project_id <- "mpxv"
 datatype <- "rnaseq"
-data_version <- 20220908
-analysis_version <- 20220908
+data_version <- 20221116
+analysis_version <- 2022116
 
 source("~/R/config.R")
 source(file.path(base_scripts_path, 'R/misc/setup_base_paths.R'))
@@ -58,8 +58,8 @@ clusterEvalQ(mop.cluster, library(DESeq2))
 clusterEvalQ(mop.cluster, library(ashr))
 
 rna_data_path <- file.path(data_path, str_c(datatype, "_", data_version))
-data <- read_tsv(file.path(rna_data_path, "487VG_HumanMPXV_DGE_Matrix_noheader.txt"), guess_max = 1000) 
-annotation <- read_tsv(file.path(rna_data_path, "487VG_HumanMPXV_SampleAnnotation_notail.txt"))
+data <- read_tsv(file.path(rna_data_path, "504VG_HumanMPXV02_DGE_Matrix_noheader.txt"), guess_max = 1000) 
+annotation <- read_tsv(file.path(rna_data_path, "504VG_HumanMPXV02_SampleAnnotation.txt")) 
 plot_path <- file.path(analysis_path, "plots", str_c(datatype, "_", data_version, "_", analysis_version))
 if (!dir.exists(plot_path)) dir.create(plot_path, recursive = TRUE)
 
@@ -276,6 +276,22 @@ plot_path <- file.path(analysis_path, "plots", str_c(datatype,"_", data_version,
 if (!dir.exists(plot_path)) dir.create(plot_path, recursive = TRUE)
 treatment_palette <- c("mock" = "gray", "MPXV" = "#F9CB40")
 
+#Simple PCA of the samples
+vsd <- vst(dds, blind=FALSE) #this step is faster after performing DESeq, but could also be run before that to generate the PCA for QC
+PCA.df <- plotPCA(vsd, intgroup = c("treatment", "timepoint"), returnData = TRUE)
+percentVar <- round(100*attr(PCA.df, "percentVar"))
+
+(pca <- ggplot(PCA.df, aes(PC1, PC2, colour = treatment))+
+    xlab(paste0("PC1: ", percentVar[1], "% variance"))+
+    ylab(paste0("PC2: ", percentVar[2], "% variance"))+
+    geom_hline(yintercept = 0)+
+    geom_vline(xintercept = 0)+
+    geom_point(size = 3)+
+    scale_colour_manual(values = treatment_palette)+
+    coord_fixed()+
+    geom_text_repel(aes(label = timepoint, colour = "black"), max.overlaps = Inf)+
+    theme_minimal())
+
 #Plot modelled counts for all genes 
 sel_objects.df <- DESeq_conditions.df %>% 
   filter(!str_detect(GeneID,"-AS" ),
@@ -332,38 +348,51 @@ object_rna_contrast_thresholds.df <- tibble(
   contrast_type = "comparison",
   p_value_threshold = 0.00001,
   #log2FC_threshold = log2(1.5),
-  log2FC_threshold = 1,
+  log2FC_threshold_6h = 0.25,
+  log2FC_threshold_12h = 0.75,
+  log2FC_threshold_24h = 1.5,
+  log2FC_threshold_tvt = 1, 
+  count_mean_threshold = 40,
   log2FC_max = 3,
   contrast_offset_log2 = 0
 )
 
 object_contrasts_4show.df <- DESeq_ashr_contrasts.df %>%
   dplyr::inner_join(object_rna_contrast_thresholds.df) %>%
-  drop_na() %>% 
-  dplyr::mutate(is_signif = padj <= p_value_threshold & abs(log2FoldChange) >= log2FC_threshold,
-                is_hit = is_signif & (count_mean_lhs >= 50 | count_mean_rhs >= 50),
+  replace_na(list(padj = 1)) %>% 
+  dplyr::mutate(is_valid_comparison = pmax(count_mean_lhs, count_mean_rhs) >= count_mean_threshold,
+                is_signif = padj <= p_value_threshold & 
+                  case_when(contrast_kind == "timepoint_vs_timepoint" ~ abs(log2FoldChange) >= log2FC_threshold_tvt,
+                            timepoint_lhs == 6 ~ abs(log2FoldChange) >= log2FC_threshold_6h,
+                            timepoint_lhs == 12 ~ abs(log2FoldChange) >= log2FC_threshold_12h,
+                            timepoint_lhs == 24 ~ abs(log2FoldChange) >= log2FC_threshold_24h),
+                is_hit = is_signif&is_valid_comparison,
+                
                 p_value_compressed = 10^(-sapply(-log10(padj), mlog10_pvalue_compress)),
                 show_label = coalesce(is_hit, FALSE),
                 log2FC_trunc = pmax(-log2FC_max, pmin(log2FC_max, log2FoldChange)),
                 truncation = scatter_truncation(log2FoldChange, log2FC_trunc, padj, padj, is_hit | !is_signif),
                 truncation_type = point_truncation_type(truncation, is_signif),
                 status = case_when(is_hit & log2FoldChange > 0 ~ 1,
-                is_hit & log2FoldChange < 0 ~ -1,
+                                   is_hit & log2FoldChange < 0 ~ -1,
                 TRUE ~ 0),
                 change = case_when(status == 1 ~ "+", 
                                    status == -1 ~ "-",
                                    TRUE ~ ".")) %>%
   dplyr::group_by(contrast) %>%
   dplyr::mutate(show_label = if_else(rep.int(sum(show_label) >= 400L, n()), is_hit, show_label)) %>%
-  dplyr::ungroup()
+  dplyr::group_by(GeneID) %>% 
+  dplyr::mutate(is_background = any(is_valid_comparison)) %>% 
+  ungroup()
 
 contrasts_stats.df <- object_contrasts_4show.df %>%
-  filter(!str_detect(GeneID,"-AS" ),
-         !str_detect(GeneID, "-\\d{4,}"),
-         !str_detect(GeneID, "AC\\d{3,}"),
-         !str_detect(GeneID, "LINC")) %>% 
+  #filter(!str_detect(GeneID,"-AS" ),
+  #       !str_detect(GeneID, "-\\d{4,}"),
+  #       !str_detect(GeneID, "AC\\d{3,}"),
+  #       !str_detect(GeneID, "LINC")) %>% 
   group_by(contrast) %>% 
-  summarise(sum_sig = sum(is_signif), sum_hit = sum(is_hit), 
+  summarise(sum_signif = sum(is_signif),
+            sum_hit = sum(is_hit),
   sum_hit_plus = sum(status == 1), sum_hit_minus = sum(status == -1))
 
 object_contrasts_4show_test.df <- object_contrasts_4show.df %>% 
@@ -405,10 +434,10 @@ object_contrasts_4show.df %>%
       #           aes(yintercept = p_value_max), linetype=1, color="darkgray") +
       geom_vline(data=sel_object_contrast_thresholds.df,
                  aes(xintercept = contrast_offset_log2), linetype=1, color="darkgray") +
-      geom_vline(data=sel_object_contrast_thresholds.df,
-                 aes(xintercept = contrast_offset_log2 + log2FC_threshold), linetype=2, color="darkgray") +
-      geom_vline(data=sel_object_contrast_thresholds.df,
-                 aes(xintercept = contrast_offset_log2 - log2FC_threshold), linetype=2, color="darkgray") +
+      #geom_vline(data=sel_object_contrast_thresholds.df,
+      #           aes(xintercept = contrast_offset_log2 + log2FC_threshold), linetype=2, color="darkgray") +
+      #geom_vline(data=sel_object_contrast_thresholds.df,
+      #           aes(xintercept = contrast_offset_log2 - log2FC_threshold), linetype=2, color="darkgray") +
       geom_point_rast(data=dplyr::filter(sel_object_contrast.df, !is_signif),
                       alpha=0.1, size=0.5, color="darkgray") +
       geom_point_rast(data=dplyr::filter(sel_object_contrast.df, is_signif & !is_hit),
@@ -420,6 +449,8 @@ object_contrasts_4show.df %>%
                        size=if_else(nlabels > 20, 2.5, 3.5),
                        force=if_else(nlabels > 20, 0.25, 1),
                        label.padding=if_else(nlabels > 20, 0.1, 0.25),
+                      nudge_y = -0.12,
+                      point.padding = 0.02,
                        max.overlaps = Inf,
                        show.legend = FALSE, segment.color = "gray") +
       scale_y_continuous(trans=mlog10_trans(), limits=c(1.0, NA)) +
@@ -444,7 +475,7 @@ glimma_plot_path <- file.path(plot_path, "MD_plots")
 if (!dir.exists(glimma_plot_path)) dir.create(glimma_plot_path, recursive = TRUE)
 
 object_contrasts_4show.df %>% 
-  filter(contrast_kind == "treatment_vs_treatment", treatment_rhs == "mock") %>% 
+  filter(contrast_kind == "treatment_vs_treatment", treatment_rhs == "mock", !is.na(GeneID)) %>%
   group_by(contrast) %>% do({
     sel_object_contrast.df <- .
     message("Plotting ", sel_object_contrast.df$contrast[[1]])
@@ -453,7 +484,7 @@ object_contrasts_4show.df %>%
          main= paste0("MD plot:", sel_object_contrast.df$contrast[[1]]),
          xval="log2MeanNormCount",
          yval="log2FoldChange",
-         counts=counts(dds),
+         counts=normalized_counts,
          anno=select(sel_object_contrast.df, GeneID),
          groups=dds$timepoint,
          samples=colnames(dds),
@@ -461,7 +492,7 @@ object_contrasts_4show.df %>%
          sample.cols = case_when(dds$treatment == "mock" ~ "gray", 
                                  dds$treatment == "MPXV" ~"#F9CB40"),
          launch = FALSE,
-         display.columns =c("GeneID", "padj", "is_signif", "is_hit"), 
+         display.columns =c("GeneID", "padj", "is_signif", "is_valid_comparison", "is_hit"), 
          folder=paste0("MD_plot_", str_replace_all(sel_object_contrast.df$contrast[[1]],":|@", "_")), path = glimma_plot_path)
     tibble()
          })
@@ -483,9 +514,9 @@ hits2export_vsmock_summary <- treatment_vs_treatment_long %>%
                                     str_detect(change, "\\-") ~ "-",
                                     TRUE ~ NA_character_))
 
-write_xlsx(treatment_vs_treatment_long, file.path(analysis_path, "reports", paste0(project_id, '_DESeq2_treatment_vs_treatment_long_', analysis_version, '.xlsx')))
-write_xlsx(time_vs_time_long, file.path(analysis_path, "reports", paste0(project_id, '_DESeq2_timepoint_vs_timepoint_long_', analysis_version, '.xlsx')))
-write_xlsx(hits2export_vsmock_summary, file.path(analysis_path, "reports", paste0(project_id, '_DESeq2_hits_vsmock_summary_', analysis_version, '.xlsx')))
+write_tsv(treatment_vs_treatment_long, file.path(analysis_path, "reports", paste0(project_id, '_DESeq2_treatment_vs_treatment_long_', analysis_version, '.txt')))
+write_tsv(time_vs_time_long, file.path(analysis_path, "reports", paste0(project_id, '_DESeq2_timepoint_vs_timepoint_long_', analysis_version, '.txt')))
+write_tsv(hits2export_vsmock_summary, file.path(analysis_path, "reports", paste0(project_id, '_DESeq2_hits_vsmock_summary_', analysis_version, '.txt')))
 
 #Prepare the data for enrichment analysis in Julia ----
 #Match the gene_id to protein_acs
@@ -529,9 +560,11 @@ DESeq_ashr_contrastsXprotacs_trVtr.df <- DESeq_ashr_contrasts.df %>%
   inner_join(rnaseq_genes2protacs.df) %>% 
   filter(contrast_kind == "treatment_vs_treatment", treatment_rhs == "mock")
 
+object_contrast_4enrichment.df <- object_contrasts_4show.df %>% filter(is_background)
+
 #Saving the RData for Julia
 save(DESeq_contrasts.df, DESeq_ashr_contrasts.df, DESeq_conditions.df,
-    object_contrasts_4show.df,
+    object_contrasts_4show.df, object_contrast_4enrichment.df,
      conditions.df, conditionsXsamples.df, contrasts.df,
      conditionXeffect.mtx,sampleXeffect.mtx, contrastXeffect.mtx, contrastXmetacondition.mtx,
      rnaseq_genes2protacs.df,
