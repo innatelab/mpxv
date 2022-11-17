@@ -190,6 +190,11 @@ object_contrast_stats.df <- dplyr::group_by(object_contrasts.df, contrast, contr
 
 View(filter(object_contrast_stats.df, ci_target == "average") %>% dplyr::arrange(desc(n_hits)))
 
+object_contrasts_4enrichment.df <- object_contrasts.df %>% 
+  group_by(protregroup_id) %>% 
+  filter(any(is_valid_comparison)) %>% 
+  ungroup()
+
 object_contrasts_wide.df <- pivot_wider(object_contrasts.df,
                                         id_cols = c("ci_target", "object_id", "object_label", "is_viral"),
                                         names_from = "contrast", names_sep = ".",
@@ -201,7 +206,7 @@ results_info <- list(project_id = project_id, mstype=mstype,
                      modelobj = modelobj, quantobj = quantobj)
 message('Saving full analysis results to ', rfit_filepath, '...')
 save(results_info, fit_stats, fit_contrasts,
-     object_contrasts.df, object_contrasts_wide.df,
+     object_contrasts.df, object_contrasts_4enrichment.df, object_contrasts_wide.df,
      object_contrasts_thresholds.df,
      file = rfit_filepath)
 message('Done.')
@@ -229,7 +234,7 @@ object_contrasts_long_report.df <- objects4report.df %>%
   mutate(timepoint = factor(timepoint, levels = c("6h", "12h", "24h"))) %>% 
   dplyr::arrange(gene_names, majority_protein_acs, timepoint, treatment_rhs, treatment_lhs, contrast, ci_target)
 
-load(file.path(results_path, "mpxv_DESeq2_data_20220813_julia.RData")) 
+load(file.path(results_path, "mpxv_DESeq2_data_20221116_julia.RData")) 
 
 fp_rnaseq_combi_long.df <- object_contrasts_long_report.df %>% 
   separate(majority_protein_acs, sep = ";", into = c("lead_protein_ac", "others")) %>% 
@@ -237,8 +242,8 @@ fp_rnaseq_combi_long.df <- object_contrasts_long_report.df %>%
   left_join(rnaseq_genes2protacs.df) %>% 
   left_join(select(object_contrasts_4show.df, GeneID, contrast, rnaseq_log2FC = log2FoldChange, rnaseq_padj = padj, rnaseq_hit = is_hit, rnaseq_change = change ))
 
-write_tsv(object_contrasts_long_report.df,
-  #fp_rnaseq_combi_long.df,
+write_tsv(#object_contrasts_long_report.df,
+  fp_rnaseq_combi_long.df,
           file.path(analysis_path, "reports", paste0(project_id, '_', mstype, '_contrasts_report_', fit_version, '_long.txt')))
 
 

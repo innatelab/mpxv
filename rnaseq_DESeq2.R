@@ -5,7 +5,7 @@
 project_id <- "mpxv"
 datatype <- "rnaseq"
 data_version <- 20221116
-analysis_version <- 2022116
+analysis_version <- 20221116
 
 source("~/R/config.R")
 source(file.path(base_scripts_path, 'R/misc/setup_base_paths.R'))
@@ -560,11 +560,11 @@ DESeq_ashr_contrastsXprotacs_trVtr.df <- DESeq_ashr_contrasts.df %>%
   inner_join(rnaseq_genes2protacs.df) %>% 
   filter(contrast_kind == "treatment_vs_treatment", treatment_rhs == "mock")
 
-object_contrast_4enrichment.df <- object_contrasts_4show.df %>% filter(is_background)
+object_contrasts_4enrichment.df <- object_contrasts_4show.df %>% filter(is_background)
 
 #Saving the RData for Julia
 save(DESeq_contrasts.df, DESeq_ashr_contrasts.df, DESeq_conditions.df,
-    object_contrasts_4show.df, object_contrast_4enrichment.df,
+    object_contrasts_4show.df, object_contrasts_4enrichment.df,
      conditions.df, conditionsXsamples.df, contrasts.df,
      conditionXeffect.mtx,sampleXeffect.mtx, contrastXeffect.mtx, contrastXmetacondition.mtx,
      rnaseq_genes2protacs.df,

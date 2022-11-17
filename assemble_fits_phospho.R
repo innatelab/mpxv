@@ -203,6 +203,11 @@ object_contrast_stats.df <- dplyr::group_by(object_contrasts.df, contrast, contr
                    n_minus = sum(change == "-")) %>%
   dplyr::ungroup() %>% filter(ci_target == "average")
 
+object_contrasts_4enrichment.df <- object_contrasts.df %>% 
+  group_by(ptmngroup_id) %>% 
+  filter(any(is_valid_comparison)) %>% 
+  ungroup()
+
 object_contrasts_wide.df <- tidyr::pivot_wider(object_contrasts.df,
                                         id_cols = c("ci_target", "object_id", "object_label", "is_viral"),
                                         names_from = "contrast", names_sep = ".",
@@ -223,7 +228,7 @@ results_info <- list(project_id = project_id, data_version = data_version,
                      fit_version = fit_version)
 message('Saving full analysis results to ', rfit_filepath, '...')
 save(results_info, fit_stats, fit_contrasts, ptmngroup2protregroup.df,
-     object_contrasts.df, object_contrasts_wide.df, object_contrasts_thresholds.df,
+     object_contrasts.df, object_contrasts_4enrichment.df, object_contrasts_wide.df, object_contrasts_thresholds.df,
      file = rfit_filepath)
 
 #generate reports----
