@@ -180,6 +180,7 @@ ptmngroup2protregroup.df <- dplyr::select(msdata_full$ptm2gene, ptm_id, protein_
 
 object_contrasts.df <- dplyr::left_join(object_contrasts_nofp.df, ptmngroup2protregroup.df) %>%
   dplyr::left_join(fp_object_contrasts.df) %>%
+  dplyr::left_join(msdata_full$ptmns %>% select(ptm_id, ptmn_id)) %>% 
   dplyr::mutate(is_hit_nofp = is_hit,
                 is_hit = is_hit & (is_viral | !coalesce(fp_is_hit, FALSE) | sign(median) != sign(coalesce(fp_median, 0))), # |
                                      #(abs(median - fp_median) >= 2)),
