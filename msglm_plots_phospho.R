@@ -43,7 +43,7 @@ object_contrasts_thresholds.df <- dplyr::select(contrasts.df, offset, offset_pri
                                   contrast_type == "comparison" ~ 1E-2,
                                   TRUE ~ NA_real_),
     median_threshold = case_when(contrast_type == "filtering" ~ pmax(2.0, 2.0 + abs(offset - offset_prior)),
-                                 contrast_type == "comparison" ~ pmax(1.0, 0.25 + abs(offset - offset_prior)),
+                                 contrast_type == "comparison" ~ pmax(0.5, 0.25 + abs(offset - offset_prior)),
                                  TRUE ~ NA_real_),
     median_max = case_when(contrast_type == "filtering" ~ 12,
                            contrast_type == "comparison" ~ 6,
@@ -68,7 +68,8 @@ modelobjs_df <- msdata$objects %>%
 obj_labu_shift <- msdata[[str_c(quantobj, "_mscalib")]]$zShift
 
 treatment_palette <- c("mock" = "gray", "MPXV" = "#F9CB40")
-hit_palette <- c("non-hit" = "grey", "hit" = "black", "oxidation hit" = "dark grey", "viral hit" = "#F9CB40", "only sig" = "light blue", "is hit nofp" = "dark blue")
+hit_palette <- c("non-hit" = "grey", "hit" = "black", #"oxidation hit" = "dark grey", 
+"viral hit" = "#F9CB40", "only sig" = "light blue", "is hit nofp" = "blue")
 fp_treatment_palette <- c(mock="lightgray", MPXV = "gold")
 base_font_family <- "Segoe UI Symbol"
 base_plot_path <- file.path(analysis_path, 'plots', str_c(data_info$msfolder, "_", fit_version))
@@ -76,18 +77,18 @@ sel_ci_target <- "average"
 
 
 #volcano for all contrasts (check assemble_fits_phospho for the missing steps if starting from the meanfield results)----
-object_contrasts_4show.df <- object_contrasts_nofp.df %>%
+object_contrasts_4show.df <- object_contrasts.df %>%
   select(-contains("threshold")) %>%
-  mutate(fp_is_hit = FALSE, fp_median = 0) %>% 
+  #mutate(fp_is_hit = FALSE, fp_median = 0) %>% 
   dplyr::inner_join(object_contrasts_thresholds.df) %>%
   dplyr::mutate(is_signif = (p_value <= p_value_threshold) & (abs(median - offset) >= median_threshold),
-                is_hit_nomschecks = is_signif & !is_contaminant,
+                is_hit_nomschecks = is_signif & !is_contaminant & !str_detect(object_label, "Oxidation"),
                 is_hit_nofp = is_hit_nomschecks & ((nmsruns_quanted_lhs_max >= 3) | (nmsruns_quanted_rhs_max >= 3)),
                 is_hit = is_hit_nofp & (is_viral | !coalesce(fp_is_hit, FALSE) | sign(median) != sign(coalesce(fp_median, 0))), # |
                 #(abs(median - fp_median) >= 2)),
                 hit_type = case_when(is_signif & !is_hit_nofp ~ "only sig",
                                      is_hit_nofp & !is_hit ~ "is hit nofp",
-                                     is_hit & str_detect(object_label, "Oxidation") ~ "oxidation hit",
+                                     #is_hit & str_detect(object_label, "Oxidation") ~ "oxidation hit",
                                      is_hit & is_viral ~ "viral hit",
                                      is_hit ~ "hit", 
                                      TRUE ~ "non-hit"), 
@@ -173,7 +174,7 @@ group_by(object_contrasts_4show.df, ci_target, contrast,
              })
 
 #Making timecourse for all proteins. The dots are from the original peptide intensity values of MQ.----
-#sel_objects.df <- dplyr::filter(modelobjs_df, str_detect(gene_name, "ZC3H13") & ptm_type == "Phospho")  #This is used for debugging
+#sel_objects.df <- dplyr::filter(modelobjs_df, str_detect(gene_name, "CTNNB") & ptm_type == "Phospho")  #This is used for debugging
 #sel_objects.df <- dplyr::semi_join(modelobjs_df, dplyr::select(fit_diff, object_id), by = "object_id")
 sel_objects.df <- dplyr::semi_join(modelobjs_df, dplyr::select(fit_stats$objects, object_id), by="object_id")#This is all!
 
@@ -216,7 +217,7 @@ dplyr::left_join(sel_objects.df, dplyr::select(msdata_full$ptmngroup_idents, ptm
       dplyr::inner_join(msdata_full$ptmngroup2pepmodstate) %>%
       dplyr::inner_join(dplyr::select(msdata_full$pepmodstates, pepmodstate_id, pepmodstate_seq)) %>% 
       dplyr::inner_join(msdata_full$pepmodstate_intensities) %>%
-      dplyr::inner_join(msdata_full$ptmn_locprobs) %>%
+      dplyr::left_join(msdata_full$ptmn_locprobs) %>%
       dplyr::inner_join(dplyr::select(msdata$msrun_shifts, msrun, total_msrun_shift)) %>%
       dplyr::mutate(intensity_norm = intensity*2^(-total_msrun_shift),
                     intensity_norm_trunc = pmin(pmax(intensity_norm,intensity_min), intensity_max),
@@ -259,7 +260,7 @@ dplyr::left_join(sel_objects.df, dplyr::select(msdata_full$ptmngroup_idents, ptm
                 sel_obj.df$protein_description, " (total npepmodstates=", unique(sel_obj_msdata.df$total_pepmodstates), ")")) +
         facet_wrap( ~ object_label+pepmodstate_seq, ncol =1, scales = "free")
       plot_path <- file.path(base_plot_path,
-                             str_c("timecourse_", sel_ptm_type, "_", sel_ci_target,
+                             str_c("test_timecourse_", sel_ptm_type, "_", sel_ci_target,
                                    modelobj_suffix, if_else(sel_obj.df$is_viral[[1]], "/viral", "")))
       if (!dir.exists(plot_path)) {dir.create(plot_path, recursive = TRUE)}
       ggsave(p, file = file.path(plot_path, str_c(project_id, "_", data_info$msfolder, '_', fit_version, "_",
@@ -270,8 +271,15 @@ dplyr::left_join(sel_objects.df, dplyr::select(msdata_full$ptmngroup_idents, ptm
   })
 
 #include fp data for the timecourse----
+require(rlang)
+fp.env <- new_environment()
+load(file.path(results_path, str_c(project_id, "_msglm_fit_", "fp_20221104", ".RData")), envir = fp.env)
+load(file.path(scratch_path, str_c(project_id, "_msdata_full_", "fp_20221104", ".RData")), envir = fp.env)
+load(file.path(scratch_path, str_c(project_id, "_msglm_data_", "fp_20221104", ".RData")), envir = fp.env)
+fp.env$obj_labu_shift <- fp.env$msdata$pepmodstate_mscalib$zShift
+
 require(multidplyr)
-plot_cluster <- new_cluster(16)
+plot_cluster <- new_cluster(32)
 cluster_library(plot_cluster, c("dplyr", "ggplot2", "stringr", "Cairo", "readr", "rlang"))
 cluster_copy(plot_cluster, c("data_info", "analysis_path", "base_plot_path", "base_font_family",
                              "project_id", "data_version", "fit_version", "obj_labu_shift",
@@ -280,7 +288,7 @@ cluster_copy(plot_cluster, c("data_info", "analysis_path", "base_plot_path", "ba
                              "point_truncation_shape_palette", "point_truncation_size_palette",
                              "treatment_palette",
                              "sel_ci_target", "modelobj", "quantobj", "modelobj_idcol", "quantobj_idcol", "modelobjs_df", "modelobj_suffix",
-                             #"fp.env", "ptmngroup2protregroup.df", "fp_treatment_palette",
+                             "fp.env", "ptmngroup2protregroup.df", "fp_treatment_palette",
                              "msglm_def", "fit_stats", "msdata", "msdata_full", "object_contrasts_4show.df"))
 
 dplyr::left_join(sel_objects.df, dplyr::select(msdata_full$ptmngroup_idents, ptmngroup_id, n_pepmodstates)) %>% unique() %>% 
@@ -302,10 +310,15 @@ dplyr::left_join(sel_objects.df, dplyr::select(msdata_full$ptmngroup_idents, ptm
     sel_obj_contrasts.df <- dplyr::semi_join(dplyr::filter(object_contrasts_4show.df, ci_target == sel_ci_target & str_starts(var, "obj_cond_labu"),
                                                            group1 == "MPXV"),
                                              sel_obj.df, by="object_id") %>% 
-      mutate(y.position = log10(max(sel_obj_conds.df$`q97.5`)*1.1),
+      mutate(y.position = max(sel_obj_conds.df$`q97.5`)*1.1,
              treatment = group1,
-             time = str_extract(group2, "(?<=@)\\d+"),
-             p_value = formatC(p_value, format = "e", digits = 2))# for the pvalue labels in the graph
+             timepoint = as.numeric(str_extract(group2, "(?<=@)\\d+")),
+             p_label = case_when(p_value < 0.001 ~ "***",
+                                 p_value < 0.01 ~ "**",
+                                 p_value < 0.05 ~ "*",
+                                 TRUE ~ "")
+             #p_value = formatC(p_value, format = "e", digits = 2)
+             ) # for the pvalue labels in the graph
     
     sel_intensity_range.df <- dplyr::group_by(sel_obj_conds.df, object_id) %>% dplyr::summarise(
       intensity_min = 0.5*quantile(q25, 0.05, na.rm=TRUE),
@@ -316,7 +329,7 @@ dplyr::left_join(sel_objects.df, dplyr::select(msdata_full$ptmngroup_idents, ptm
       dplyr::inner_join(msdata_full$ptmngroup2pepmodstate) %>%
       dplyr::inner_join(dplyr::select(msdata_full$pepmodstates, pepmodstate_id, pepmodstate_seq)) %>% 
       dplyr::inner_join(msdata_full$pepmodstate_intensities) %>%
-      dplyr::inner_join(msdata_full$ptmn_locprobs) %>%
+      dplyr::left_join(msdata_full$ptmn_locprobs) %>%
       dplyr::inner_join(dplyr::select(msdata$msrun_shifts, msrun, total_msrun_shift)) %>%
       dplyr::mutate(#intensity_norm_orig = intensity,
         #intensity_norm_orig_scaled = intensity_norm_orig*exp(-qobj_shift),
@@ -352,6 +365,7 @@ dplyr::left_join(sel_objects.df, dplyr::select(msdata_full$ptmngroup_idents, ptm
         geom_text(data=sel_obj_msdata.df,
                   aes(y = intensity_used, label=replicate),
                   position = position_jitter(width = 0.75, height = 0, seed=12323), size=1, color="lightgray", show.legend=FALSE) +
+        geom_text(data = sel_obj_contrasts.df, aes(x = timepoint, y = y.position, label = p_label), colour = "black")+
         theme_bw_ast(base_family = "", base_size = 8) +
         scale_x_continuous(breaks=unique(msdata$msruns$timepoint_num)) +
         scale_color_manual(values=treatment_palette) +
@@ -489,3 +503,11 @@ dplyr::group_by(viral_phospho_intensities.df, protein_ac) %>%
   })
 
 
+#additional plots----
+ptmngroup_idents.df <- inner_join(msdata$ptmngroup_idents, msdata$msexperiments) %>% 
+  filter(ptm_type == "Phospho")
+
+ggplot(test.df, aes(x = n_quanted, fill = timepoint))+
+  geom_histogram()+
+  xlim(0, 10)+
+  facet_wrap(~treatment)
