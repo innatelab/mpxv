@@ -108,7 +108,7 @@ msdata_full$ptmngroups <- msdata_full$ptmn2ptmngroup %>%
          ptmns = paste(ptmn_label_short, collapse = ";")
          ) %>% 
   left_join(msdata_full$ptmngroup2pepmodstate %>% select(ptmngroup_id, ptmngroup_label)) %>% 
-  select(ptm_type, nselptms,ptmngroup_id, ptmngroup_label, ptmn_id, ptm_pos, protein_ac, gene_name, is_viral, is_contaminant, ptmn_ids, ptm_ids, ptm_pos_all, protein_acs, ptmns ) %>% 
+  select(ptm_type, nselptms,ptmngroup_id, ptmngroup_label, ptmn_id, ptm_id, ptm_pos, protein_ac, gene_name, is_viral, is_contaminant, ptmn_ids, ptm_ids, ptm_pos_all, protein_acs, ptmns ) %>% 
   slice_head() %>% ungroup() %>% distinct() %>% 
   dplyr::mutate(ptmngroup_label_no_ptm_type = str_remove(ptmngroup_label, "^[^_]+_"))
 
