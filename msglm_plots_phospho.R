@@ -511,3 +511,124 @@ ggplot(test.df, aes(x = n_quanted, fill = timepoint))+
   geom_histogram()+
   xlim(0, 10)+
   facet_wrap(~treatment)
+
+# timecourse for the paper ---- 
+sel_objects.df <- dplyr::filter(modelobjs_df, str_detect(object_label, str_c(c("Phospho_CTNNB1_S552_M1", "Phospho_MAPK14_Y182_M2"), collapse = "|")))
+
+dplyr::left_join(sel_objects.df, dplyr::select(msdata_full$ptmngroup_idents, ptmngroup_id, n_pepmodstates)) %>% unique() %>% 
+  dplyr::group_by(object_id) %>% slice_max(order_by = n_pepmodstates) %>% 
+  do({
+    sel_obj.df <- .
+    sel_ptm_type <- sel_obj.df$ptm_type
+    message("Plotting ", sel_obj.df$object_label, " time course")
+    
+    sel_var <- if_else(sel_ci_target == "average", "obj_cond_labu", "obj_cond_labu_replCI")
+    sel_obj_conds.df <- dplyr::inner_join(dplyr::select(sel_obj.df, object_id),
+                                          dplyr::filter(fit_stats$object_conditions, var == sel_var)) %>%
+      dplyr::inner_join(dplyr::select(msglm_def$conditions, condition, treatment, timepoint, timepoint_num), by="condition") %>%
+      dplyr::arrange(timepoint_num) %>% 
+      dplyr::mutate(dplyr::across(c(mean, median, starts_with("q")),
+                                  ~2^(.x + obj_labu_shift))) %>%
+      dplyr::mutate(q97.5_limit = max(median + (q75 - q25)*5))
+    
+    sel_obj_contrasts.df <- dplyr::semi_join(dplyr::filter(object_contrasts_4show.df, ci_target == sel_ci_target & str_starts(var, "obj_cond_labu"),
+                                                           group1 == "MPXV"),
+                                             sel_obj.df, by="object_id") %>% 
+      mutate(y.position = max(sel_obj_conds.df$`q97.5`)*1.1,
+             treatment = group1,
+             timepoint = as.numeric(str_extract(group2, "(?<=@)\\d+")),
+             p_label = case_when(p_value < 0.001 ~ "***",
+                                 p_value < 0.01 ~ "**",
+                                 p_value < 0.05 ~ "*",
+                                 TRUE ~ "")
+             #p_value = formatC(p_value, format = "e", digits = 2)
+      ) # for the pvalue labels in the graph
+    
+    sel_intensity_range.df <- dplyr::group_by(sel_obj_conds.df, object_id) %>% dplyr::summarise(
+      intensity_min = 0.5*quantile(q25, 0.05, na.rm=TRUE),
+      intensity_max = 1.5*quantile(q75, 0.95, na.rm=TRUE),
+      .groups="drop")
+    sel_obj_msdata.df <- sel_obj.df %>%
+      dplyr::inner_join(sel_intensity_range.df) %>%
+      dplyr::inner_join(msdata_full$ptmngroup2pepmodstate) %>%
+      dplyr::inner_join(dplyr::select(msdata_full$pepmodstates, pepmodstate_id, pepmodstate_seq)) %>% 
+      dplyr::inner_join(msdata_full$pepmodstate_intensities) %>%
+      dplyr::left_join(msdata_full$ptmn_locprobs) %>%
+      dplyr::inner_join(dplyr::select(msdata$msrun_shifts, msrun, total_msrun_shift)) %>%
+      dplyr::mutate(#intensity_norm_orig = intensity,
+        #intensity_norm_orig_scaled = intensity_norm_orig*exp(-qobj_shift),
+        intensity_norm = intensity*exp(-total_msrun_shift),
+        #intensity_norm_scaled = intensity_norm*exp(-qobj_shift),
+        #intensity_norm_orig_scaled_trunc = pmin(pmax(intensity_norm_orig_scaled,
+        #                                             intensity_min), intensity_max),
+        intensity_norm_trunc = pmin(pmax(intensity_norm,intensity_min), intensity_max),
+        intensity_used = intensity_norm_trunc
+      ) %>%
+      dplyr::inner_join(msdata_full$msruns) %>%
+      dplyr::mutate(locprob_valid = coalesce(ptm_locprob, 0) >= data_info$locprob_min,
+                    pvalue_valid = coalesce(psm_pvalue, 1) <= data_info$pvalue_ident_max,
+                    ms_status = case_when(locprob_valid & pvalue_valid ~ "valid",
+                                          !locprob_valid & pvalue_valid ~ "bad PTM loc",
+                                          locprob_valid & !pvalue_valid ~ "bad ident",
+                                          TRUE ~ 'bad ident&loc')) %>% 
+      group_by(object_id) %>% 
+      mutate(total_pepmodstates = n_distinct(pepmodstate_id)) %>% 
+      ungroup()
+    #print(sel_obj_msdata.df)
+    if (nrow(sel_obj_conds.df) > 0) {
+      h <- 3
+      p <-
+        ggplot(data=sel_obj_conds.df, aes(x = timepoint_num, color=treatment, fill=treatment)) +
+        geom_ribbon(aes(x = timepoint_num, ymin = `q2.5`, ymax=`q97.5`),
+                    alpha=0.5, fill=NA, stat = "identity", linetype = "dotted", size=0.5) +
+        geom_ribbon(aes(x = timepoint_num, ymin = q25, ymax= q75),
+                    alpha=0.5, stat = "identity", size=0.5) +
+        geom_path(aes(x = timepoint_num, y = median), alpha=0.5, size=1, stat="identity") +
+        geom_text(data = sel_obj_contrasts.df, aes(x = timepoint, y = y.position, label = p_label), colour = "black")+
+        theme_bw_ast(base_family = "", base_size = 12) +
+        scale_x_continuous("Time, h.p.i.", breaks=unique(msdata$msruns$timepoint_num), minor_breaks = NULL,
+                           labels=scales::label_number(accuracy = 1)) +
+        scale_color_manual("Treatment", values=treatment_palette, guide = "none") +
+        scale_fill_manual("Treatment", values=treatment_palette, guide = "none") +
+        scale_y_log10("PTM Intensity", n.breaks=8, minor_breaks = NULL, labels=scales::label_scientific()) 
+      
+      if (exists("fp.env")) {
+        sel_fp_conds.df <- semi_join(fp.env$fit_stats$object_conditions, semi_join(ptmngroup2protregroup.df, sel_obj.df), by = c("protregroup_id" = "fp_protregroup_id")) %>%
+          filter(var == if_else(sel_ci_target == "average", "obj_cond_labu", "obj_cond_labu_replCI")) %>%
+          dplyr::inner_join(dplyr::select(msglm_def$conditions, condition, treatment, timepoint, timepoint_num), by="condition") %>% 
+          dplyr::arrange(timepoint_num) %>% 
+          dplyr::mutate(dplyr::across(c(mean, median, starts_with("q")),
+                                      ~2^(.x + obj_labu_shift))) %>%
+          dplyr::mutate(q97.5_limit = max(median + (q75 - q25)*5))
+        
+        if (nrow(sel_fp_conds.df) > 0L) {
+          fp_plot <- ggplot(data=sel_fp_conds.df, aes(x = timepoint_num, color=treatment, fill=treatment)) +
+            geom_ribbon(aes(x = timepoint_num, ymin = `q2.5`, ymax=`q97.5`),
+                        alpha=0.5, fill=NA, stat = "identity", linetype = "dotted", size=0.5) +
+            geom_ribbon(aes(x = timepoint_num, ymin = q25, ymax=q75),
+                        alpha=0.5, stat = "identity", size=0.5) +
+            geom_path(aes(x = timepoint_num, y = median), alpha=0.5, size=1, stat="identity") +
+            theme_bw_ast(base_family = "", base_size = 12) +
+            scale_x_continuous("Time, h.p.i.", breaks=unique(msdata_full$msruns$timepoint_num),
+                               minor_breaks = NULL, labels=scales::label_number(accuracy = 1)) +
+            scale_color_manual(values=fp_treatment_palette, guide = "none") +
+            scale_fill_manual(values=fp_treatment_palette, guide = "none") +
+            scale_y_log10("Protein Intensity", n.breaks=5, labels=scales::label_scientific(), minor_breaks = NULL,
+                          expand = expansion(mult = 0.25, add = 0.25))
+          p <- ggpubr::ggarrange(p, fp_plot, ncol=1, align="h", common.legend=TRUE, heights=c(0.5, 0.5))
+          h <- h + 3L
+        }
+      }
+      p <- p + ggtitle(str_c(sel_obj.df$object_label, " timecourse"),
+                       subtitle=str_c(sel_obj_msdata.df$ptmns, "\n",
+                                      sel_obj.df$protein_description, " (total npepmodstates=", unique(sel_obj_msdata.df$total_pepmodstates), ")"))
+      plot_path <- file.path(base_plot_path,
+                             str_c("timecourse4paper_", sel_ptm_type, "_", sel_ci_target,
+                                   modelobj_suffix, if_else(sel_obj.df$is_viral[[1]], "/viral", "")))
+      if (!dir.exists(plot_path)) {dir.create(plot_path, recursive = TRUE)}
+      ggsave(p, file = file.path(plot_path, str_c(project_id, "_", data_info$msfolder, '_', fit_version, "_",
+                                                  str_replace(sel_obj.df$object_label[[1]], "/", "-"), "_", sel_obj.df$object_id[[1]], "_long.pdf")),
+             width=3, height=h, limitsize=FALSE, device = cairo_pdf)
+    }
+    tibble()
+  })

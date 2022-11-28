@@ -361,4 +361,59 @@ group_by(sel_pepmod_intens.df, object_id) %>%
                         gc()
                       })
   
+# timecourse for the paper----
+sel_objects.df <- dplyr::filter(modelobjs_df, is_viral)
+sel_objects.df <- dplyr::filter(modelobjs_df, str_detect(object_label, str_c(c("CTNNB1", "THBS1", "MAPK14"), collapse="|")))
+
+
+dplyr::group_by(sel_objects.df, object_id) %>% do({
+  sel_obj.df <- .
+  message("Plotting ", sel_obj.df$object_label, " time course")
   
+  sel_var <- if_else(sel_ci_target == "average", "obj_cond_labu", "obj_cond_labu_replCI")
+  sel_obj_conds.df <- dplyr::inner_join(dplyr::select(sel_obj.df, object_id),
+                                        dplyr::filter(fit_stats$object_conditions, var == sel_var)) %>%
+    dplyr::inner_join(dplyr::select(msglm_def$conditions, condition, treatment, timepoint, timepoint_num), by="condition") %>%
+    dplyr::arrange(timepoint_num) %>% 
+    dplyr::mutate(dplyr::across(c(mean, median, starts_with("q")),
+                                ~2^(.x + obj_labu_shift))) %>%
+    dplyr::mutate(q97.5_limit = max(median + (q75 - q25)*5))
+  
+  sel_obj_contrasts.df <- dplyr::semi_join(dplyr::filter(object_contrasts_4show.df, ci_target == sel_ci_target & str_starts(var, "obj_cond_labu"),
+                                                         group1 == "MPXV"),
+                                           sel_obj.df, by="object_id") %>% 
+    mutate(y.position = max(sel_obj_conds.df$`q97.5_limit`)*1.1,
+           treatment = group1,
+           timepoint = as.numeric(str_extract(group2, "(?<=@)\\d+")),
+           #p_value = formatC(p_value, format = "e", digits = 2),
+           p_label = case_when(p_value < 0.001 ~ "***",
+                               p_value < 0.01 ~ "**",
+                               p_value < 0.05 ~ "*",
+                               TRUE ~ ""))# for the pvalue labels in the graph
+  
+  #print(sel_obj_msdata.df)
+  if (nrow(sel_obj_conds.df) > 0) {
+    p <-
+      ggplot(data=sel_obj_conds.df, aes(x = timepoint_num, color=treatment, fill=treatment)) +
+      geom_ribbon(aes(x = timepoint_num, ymin = `q2.5`, ymax=`q97.5`),
+                  alpha=0.5, fill=NA, stat = "identity", linetype = "dotted", size=0.5) +
+      geom_ribbon(aes(x = timepoint_num, ymin = q25, ymax= q75),
+                  alpha=0.5, stat = "identity", size=0.5) +
+      geom_path(aes(x = timepoint_num, y = median), alpha=0.5, size=1, stat="identity") +
+      geom_text(data = sel_obj_contrasts.df, aes(x = timepoint, y = y.position, label = p_label), colour = "black")+
+      theme_bw_ast(base_family = "", base_size = 12) +
+      scale_x_continuous("Time, h.p.i.", breaks=unique(msdata$msruns$timepoint_num), minor_breaks = NULL, labels=scales::label_number(accuracy = 1)) +
+      scale_color_manual("Treatment", values=treatment_palette, guide = "none") +
+      scale_fill_manual("Treatment", values=treatment_palette, guide = "none") +
+      scale_y_log10("Protein Intensity", n.breaks=5, minor_breaks = NULL, labels=scales::label_scientific())+
+      coord_cartesian(ylim=c(NA, max(sel_obj_conds.df$q97.5_limit)*1.1))
+    plot_path <- file.path(base_plot_path,
+                           str_c("timecourse4paper_", sel_ci_target,
+                                 modelobj_suffix, if_else(sel_obj.df$is_viral[[1]], "/viral", "")))
+    if (!dir.exists(plot_path)) {dir.create(plot_path, recursive = TRUE)}
+    ggsave(p, file = file.path(plot_path, str_c(project_id, "_", data_info$msfolder, '_', fit_version, "_",
+                                                str_replace(sel_obj.df$object_label[[1]], "/", "-"), "_", sel_obj.df$object_id[[1]], ".pdf")),
+           width=3, height=3, device = cairo_pdf)
+  }
+  tibble()
+})
