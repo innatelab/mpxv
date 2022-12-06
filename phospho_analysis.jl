@@ -1,11 +1,11 @@
 proj_info = (id = "mpxv",
-             data_ver = "20220812",
-             fit_ver = "20220813",
-             oesc_ver = "20220829",
+             data_ver = "20221105",
+             fit_ver = "20221111",
+             oesc_ver = "20221117",
              modelobj = "ptmngroup",
              countobj= "ptmngroup",
              mstype = "phospho",
-             msfolder = "phospho_20220812")
+             msfolder = "phospho_20221105")
 
 using Pkg
 Pkg.activate(@__DIR__)
