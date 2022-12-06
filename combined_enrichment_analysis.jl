@@ -1,18 +1,18 @@
 proj_info = (id = "mpxv",
-             oesc_ver = "20220829")
+             oesc_ver = "20221117")
 
 datasets = Dict(
-    :fp => (fit_ver="20220817", data_ver = "20220817",
+    :fp => (fit_ver="20221104", data_ver = "20221104",
            analysis=:msglm, ptm=nothing,
            datatype=:fp, entity=:protein,
            label="Proteome",
          color="#226430"),
-    :phospho => (fit_ver="20220813", data_ver = "20220812",
+    :phospho => (fit_ver="20221111", data_ver = "20221105",
                  analysis=:msglm, ptm=:phospho,
                  datatype=:phospho, entity=:ptm,
                  label="Phosphoproteome",
                  color="#5e268f"),
-    :rnaseq => (fit_ver="20220813",
+    :rnaseq => (fit_ver="20221116",
                 analysis=:DESeq2, ptm=nothing,
                 datatype=:rnaseq, entity=:gene,
                 label="Transcriptome",
@@ -77,14 +77,14 @@ for (dsname, rdata) in pairs(msglm_rdata)
         pepmods_df = msdata_full["pepmods"]
         missing_pms_cols = intersect(setdiff([:peptide_id, :nselptms], propertynames(pepmodstates_df)), propertynames(pepmods_df))
         if !isempty(missing_pms_cols)
-            pepmodstates_df = innerjoin(pepmodstates_df, pepmods_df[!, [[:pepmod_id]; missing_pms_cols]], on=:pepmod_id)
+            pepmodstates_df = innerjoin(pepmodstates_df, pepmods_df[!, [[:pepmod_id]; missing_pms_cols]], on=:pepmod_id)|> unique! #sometimes contaminants might be counted twice in pepmods
             @assert nrow(pepmodstates_df) == nrow(msdata_full["pepmodstates"])
             msdata_full["pepmodstates"] = pepmodstates_df
         end
     end
 
     pms_intensities_df = msdata_full["pepmodstate_intensities"]
-    hasproperty(pms_intensities_df, :psm_pvalue) || insertcols!(pms_intensities_df, :psm_pvalue =>1) #fp doesn't have pms_pvalue, use 1 instead. Later the peptides from fp won't be influcing the protgroup of ptms anyway
+    hasproperty(pms_intensities_df, :psm_pvalue) || insertcols!(pms_intensities_df, :psm_pvalue =>1) #fp doesn't have psm_pvalue, use 1 instead. Later the peptides from fp won't be influcing the protgroup of ptms anyway
     if !hasproperty(pms_intensities_df, :peptide_id)
         pms_intensities_df = innerjoin(pms_intensities_df, pepmodstates_df[!, [:pepmodstate_id, :peptide_id]], on=:pepmodstate_id)
         @assert nrow(pms_intensities_df) == nrow(msdata_full["pepmodstate_intensities"])
@@ -122,7 +122,7 @@ peptide2protein_df = combine(groupby(reduce(vcat, begin
                                        select(msdata["peptides"], [:peptide_id, :peptide_seq]), on=:peptide_id)
     end
     pepstats_df = combine(groupby(pms_intensities_df, :peptide_seq),
-                          :psm_pvalue => (x -> minimum(skipmissing(x))) => :psm_pvalue)
+                          :psm_pvalue => (x -> minimum(coalesce(x,1))) => :psm_pvalue) #note that some peptides has nothing in psm_pvalue at all
     # set the rank of non-PTM peptides to -1, so that proteome-only observed peptides are ignored (was: still used to define
     # protein groups, but they would not split the protein group derived from PTM datasets)
     pepstats_df.peptide_rank = ifelse.(coalesce.(pepstats_df.psm_pvalue, 1.0) .<= 1E-3, ifelse(isptm, 1, 2), -1)
@@ -181,7 +181,7 @@ end for (dsname, dsinfo) in datasets if !isnothing(dsinfo.ptm))
 
 for (dsname, df) in ptmngroup2protgroup_dfs
     dsinfo = datasets[dsname]
-    open(GzipCompressorStream, joinpath(data_path, "phospho_20220812", "ptm2protgroup_$(dsinfo.fit_ver).txt.gz"), "w") do io
+    open(GzipCompressorStream, joinpath(data_path, "phospho_$(dsinfo.data_ver)", "ptm2protgroup_$(dsinfo.fit_ver).txt.gz"), "w") do io
         CSV.write(io, df, delim='\t')
     end
 end
