@@ -513,6 +513,7 @@ ggplot(test.df, aes(x = n_quanted, fill = timepoint))+
   facet_wrap(~treatment)
 
 # timecourse for the paper ---- 
+sel_objects.df <- dplyr::filter(modelobjs_df, is_viral)
 sel_objects.df <- dplyr::filter(modelobjs_df, str_detect(object_label, str_c(c("Phospho_CTNNB1_S552_M1", "Phospho_MAPK14_Y182_M2"), collapse = "|")))
 
 dplyr::left_join(sel_objects.df, dplyr::select(msdata_full$ptmngroup_idents, ptmngroup_id, n_pepmodstates)) %>% unique() %>% 
