@@ -18,6 +18,7 @@ source(file.path(base_scripts_path, 'R/misc/setup_project_paths.R'))
 
 combined.df <- read_tsv(file.path(analysis_path, "reports", "downstream_analysis", "mpxv_HeLa_combined_contrasts_report_wide.txt"))
 
+#summary plots for host and viral proteins----
 combined_stats <- combined.df %>% 
   filter(ci_target == "average",
          !is_viral_ivip & !is_viral_mpxv & !is_contaminant) %>% 
@@ -147,6 +148,7 @@ ggsave(p2, filename = file.path(analysis_path, "plots", paste0("ivip_summary_plo
 ggsave(p3, filename = file.path(analysis_path, "plots", paste0("ivip_summary_plot_viral_", analysis_version, ".pdf")),
        width = 8, height = 4) 
 
+#euler plot for three poxviruses----
 ivip_24h_euler_list <- list(
   VACV = combined.df %>% filter(ci_target == "average", !is_viral_ivip, ! is_viral_mpxv, is_hit.VACV_WR_24h_VS_mock_24h)#, change.VACV_WR_24h_VS_mock_24h == "-") 
   %>% select(object_id) %>% unlist,
