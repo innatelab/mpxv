@@ -207,3 +207,27 @@ save(results_info, fit_stats, fit_contrasts,
      object_contrasts_thresholds.df,
      file = rfit_filepath)
 message('Done.')
+
+#make the tables for publication----
+object_contrast_average.df <- object_contrasts.df %>% 
+  filter(ci_target == "average", timepoint_lhs != 0) %>% 
+  separate(treatment_lhs, into = c("virus", "other")) %>% 
+  mutate(virus = ifelse(other == "dE9L", paste0(virus, "dE3L"), virus),
+         virus = factor(virus, levels = c("VACV", "CVA", "MVA", "MVAdE3L")),
+         condition = paste0(virus, "@", timepoint_lhs, "h"),
+         change = ifelse(is_hit, change, ".")) %>% 
+  arrange(timepoint_lhs, virus)
+
+pivoted <- pivot_wider(object_contrast_average.df, object_id,
+                        names_from = "condition", values_from = c("is_hit", "change",  "median", "p_value", "sd"),
+                        names_sep=".")
+
+names_to_order <- map(unique(object_contrast_average.df$condition), ~ names(pivoted)[grep(paste0(".", .x), names(pivoted))]) %>% unlist
+names_id <- setdiff(names(pivoted), names_to_order)
+
+object_contrast_4paper.df <- objects4report.df %>% 
+  left_join(pivoted %>% select(names_id, names_to_order)) %>% 
+  arrange(object_id)
+
+write_tsv(object_contrast_4paper.df,
+          file.path(analysis_path, "reports", "sup_tables", paste0("Supplementary table X Total proteome of HeLa cells infected with different poxviruses.txt")))
