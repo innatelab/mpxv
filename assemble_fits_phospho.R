@@ -73,7 +73,7 @@ rm(fit_chunks)
 message('Done.')
 
 # additional filter for hits ----
-obj_conditions.df <- expand(fit_stats$object_conditions, ptmngroup_id, condition) %>%
+obj_conditions.df <- tidyr::expand(fit_stats$object_conditions, ptmngroup_id, condition) %>%
   dplyr::inner_join(msdata$msruns) %>%
   dplyr::left_join(msdata_full$ptmngroup2pepmodstate) %>%
   dplyr::left_join(msdata_full$pepmodstate_intensities) %>%
@@ -148,7 +148,7 @@ object_contrasts_nofp.df <- fit_contrasts$object_conditions %>%
                 is_hit = is_hit_nomschecks & is_valid_comparison, 
                 mean_trunc = pmax(-median_max, pmin(median_max, mean - offset)) + offset,
                 median_trunc = pmax(-median_max, pmin(median_max, median - offset)) + offset,
-                short_label = str_remove_all(object_label, "Oxidation_|Phospho_|_M\\d$"),
+                short_label = str_remove_all(object_label, "Oxidation_|Phospho_|_M\\d$|_M\\d\\.\\.\\.$"),
                 change = if_else(is_signif, if_else(median < 0, "-", "+"), "."))
 
 #include fp information
@@ -167,7 +167,7 @@ fp_object_contrasts.df <- dplyr::select(fp.env$object_contrasts.df,
                                         fp_change=change) 
 
 ptmngroup2protregroup.df <- dplyr::select(msdata_full$ptm2gene, ptm_id, protein_ac, ptm_pos) %>%
-  dplyr::left_join(fp.env$msdata_full$protein2protregroup) %>%
+  dplyr::left_join(fp.env$msdata_full$protein2protregroup) %>% #note: here all the detected protein(re)groups including the ones from fractionation will be counted, but not all of them had enough peptides to be modelled in the real samples!
   dplyr::left_join(dplyr::select(fp.env$msdata_full$protregroups, protregroup_id, npepmods_unique)) %>%
   dplyr::arrange(desc(npepmods_unique)) %>%
   dplyr::distinct() %>%
@@ -178,9 +178,9 @@ ptmngroup2protregroup.df <- dplyr::select(msdata_full$ptm2gene, ptm_id, protein_
   dplyr::select(ptm_id, ptm_pos, protein_ac, fp_protregroup_id=protregroup_id) %>% 
   dplyr::left_join(dplyr::select(msdata_full$ptmngroups, ptmngroup_id, protein_ac, ptm_pos))
 
-object_contrasts.df <- dplyr::left_join(object_contrasts_nofp.df, ptmngroup2protregroup.df) %>%
+object_contrasts.df <- dplyr::left_join(object_contrasts_nofp.df, dplyr::select(msdata_full$ptmngroups, ptmngroup_id, ptmn_id, ptm_id, ptm_pos, protein_ac)) %>% 
+  left_join(ptmngroup2protregroup.df) %>%
   dplyr::left_join(fp_object_contrasts.df) %>%
-  dplyr::left_join(msdata_full$ptmns %>% select(ptm_id, ptmn_id)) %>% 
   dplyr::mutate(is_hit_nofp = is_hit,
                 is_hit = is_hit & (is_viral | !coalesce(fp_is_hit, FALSE) | sign(median) != sign(coalesce(fp_median, 0))), # |
                                      #(abs(median - fp_median) >= 2)),
@@ -280,3 +280,114 @@ object_contrasts_report_long.df <- object_contrasts.df %>%
 
 write_tsv(object_contrasts_report_long.df, file.path(analysis_path, "reports", paste0(project_id, '_phospho_contrasts_report_', fit_version, '_long.txt')))
 
+#make supplementary table for publication----
+object_contrast_average.df <- object_contrasts.df %>% 
+  left_join(select(msdata$ptmngroups, ptmngroup_id, ptmn_id, ptmn_ids, ptmns, protein_ac, ptm_pos)) %>%
+  left_join(msdata_full$ptm2gene) %>% 
+  left_join(ptm_annots.df) %>%
+  left_join(select(msdata_full$proteins, protein_ac, protein_name)) %>% 
+  filter(ci_target == "average",
+         treatment_rhs == "mock",
+         ptm_code != "gl"|is.na(ptm_code)) %>% 
+  mutate(ptm_AA = ifelse(is.na(ptm_AA), str_extract(object_label, "(?<=\\_)[STY](?=\\d)"),ptm_AA), #ptm_AA is NA if the ptm is unreported before 
+         time = paste0(timepoint_lhs, "h"),
+         time = factor(time, levels = c("6h", "12h", "24h")),
+         change = ifelse(is_hit_nofp, change, "."),
+         ptm_site = paste0(ptm_AA, ptm_pos),
+         fp_protregroup_id = ifelse(is.na(fp_median), NA, fp_protregroup_id)) %>% 
+  select(time, ptmngroup_id, ptmngroup_label, ptm_site, genename, protein_ac, protein_description = protein_name, is_contaminant, is_viral, ptm_pos, ptm_AA, flanking_15AAs,
+         other_ptmn_labels = ptmns, protein_id = fp_protregroup_id, short_label,
+         is_signif, is_hit, change, protein_change = fp_change, fold_change_log2 = median, protein_fold_change_log2 = fp_median,
+         p_value, protein_p_value = fp_p_value, sd_log2 = sd) %>% 
+  separate(other_ptmn_labels, sep = ";", into = c("first", "other_ptmn_labels"), extra = "merge") %>% 
+  select(-first) %>% 
+  arrange(time)
+
+#for the final suppl. table, only include the multiplicity that contains the highest no. of hit (nofp), and lowest multiplicity
+ptmn_fit_stats.df <- object_contrast_average.df %>% 
+    dplyr::group_by(ptmngroup_id, short_label) %>%
+    dplyr::summarise(n_hits = sum(is_signif), .groups="drop") %>%
+    dplyr::group_by(short_label) %>%
+  dplyr::arrange(desc(n_hits), ptmngroup_id) %>%
+    dplyr::mutate(ptmnid_is_reference = row_number() == 1L) %>%
+    dplyr::ungroup()
+
+pivoted <- pivot_wider(object_contrast_average.df, ptmngroup_id:protein_id,
+                       names_from = "time", values_from = c("is_hit", "change", "protein_change", "fold_change_log2", "protein_fold_change_log2",
+                                                            "p_value", "protein_p_value", "sd_log2"),
+                       names_sep=".")
+
+names_to_order <- map(unique(object_contrast_average.df$time), ~ names(pivoted)[grep(paste0(".", .x), names(pivoted))]) %>% unlist
+names_id <- setdiff(names(pivoted), names_to_order)
+
+object_contrast_4paper.df <- ptmn_fit_stats.df %>% 
+  filter(ptmnid_is_reference) %>% 
+  select(ptmngroup_id) %>% 
+  left_join(pivoted %>% select(names_id, names_to_order))%>% 
+  mutate(flanking_15AAs = str_replace(flanking_15AAs, pattern = "(.{16})(.{15})", replacement = "\\1\\*\\2")) %>% 
+  arrange(ptmngroup_id)
+  
+write_tsv(object_contrast_4paper.df,
+          file.path(analysis_path, "reports", "sup_tables", paste0("Supplementary table X Phosphoproteome of HFF cells infected with MPXV.txt")))
+
+#prepare a separate table for viral protein only----
+ptm_pvalue_ident_max <- 1E-3
+ptm_pvalue_quant_max <- 1E-2
+ptm_locprob_ident_min <- 0.75
+ptm_locprob_quant_min <- 0.5
+
+ptm_status_levels <- c("N/A", "potential", "low conf.", "observed")
+
+ptmngroupXcondition_stats.df <- dplyr::select(msdata_full$ptmngroups, is_viral, ptm_type, ptmngroup_id, ptmn_id) %>% 
+  dplyr::filter(is_viral, ptm_type == "Phospho") %>%
+  dplyr::left_join(msdata_full$ptmn2pepmodstate) %>%
+  dplyr::left_join(msdata_full$pepmodstate_intensities) %>%
+  dplyr::left_join(dplyr::select(msdata_full$ptmn_locprobs, evidence_id, ptmn_id, ptm_id, ptm_locprob, msrun, ptm_AA_seq)) %>%
+  dplyr::left_join(msdata_full$msruns) %>%
+  replace_na(list(condition = "fractionation")) %>% 
+  dplyr::group_by(ptm_type,ptm_id, ptmn_id, ptmngroup_id, condition) %>%
+  dplyr::summarise(ptm_pvalue_min = min(psm_pvalue, 1, na.rm=TRUE),
+                   ptm_locprob_max = max(ptm_locprob, 0, na.rm=TRUE),
+                   n_idented_and_localized  = n_distinct(str_c(msrun, " ", pepmodstate_id)[(coalesce(psm_pvalue, 1) <= ptm_pvalue_ident_max) &
+                                                                                             (coalesce(ptm_locprob, 0) >= ptm_locprob_ident_min)]),
+                   n_quanted  = n_distinct(str_c(msrun, " ", pepmodstate_id)[(coalesce(psm_pvalue, 1) <= ptm_pvalue_quant_max) &
+                                                                               (coalesce(ptm_locprob, 0) >= ptm_locprob_quant_min)]),
+                   .groups="drop") %>% 
+  left_join(msdata_full$ptm2protein) %>% 
+  left_join(select(msdata_full$proteins, protein_ac, protein_name, seq)) %>% 
+  mutate(seq_length = str_length(seq)) %>% 
+  #filter(!is.na(ptm_AA_seq)) %>% 
+  dplyr::mutate(ptm_correct = (ptm_type == "Phospho" & ptm_AA_seq %in% c("S","T","Y")),
+                is_observed = coalesce(n_idented_and_localized, 0) > 0,
+                is_observed_lowconf = (coalesce(ptm_pvalue_min, 1) <= ptm_pvalue_ident_max) |
+                                         (coalesce(ptm_locprob_max, 0) >= ptm_locprob_ident_min),
+                ptm_status = case_when(is_observed ~ "observed",
+                                       is_observed_lowconf ~ "low conf.",
+                                       ptm_correct ~ "potential",
+                                       TRUE ~ "N/A") %>% factor(ordered=TRUE, levels=ptm_status_levels)) %>% 
+  left_join(msdata_full$ptm2gene)
+
+pre_viral_phospho4paper.df <- ptmngroupXcondition_stats.df %>% 
+  select(gene_name = genename, protein_ac, protein_description = protein_name, ptm_pos, ptm_AA = ptm_AA_seq, condition, 
+         pms_p_value_min = ptm_pvalue_min, ptm_locprob_max,
+         n_idented_and_localized, n_quanted,
+         ptm_status, flanking_15AAs) %>% 
+  mutate(flanking_15AAs = str_replace(flanking_15AAs, pattern = "(.{16})(.{15})", replacement = "\\1\\*\\2")) %>% 
+  separate(condition, into = c("source", "time")) %>% 
+  mutate(time = as.numeric(time)) %>% 
+  arrange(gene_name, ptm_pos, time)
+
+viral_phospho4paper.df <- pre_viral_phospho4paper.df %>% 
+  group_by(gene_name, ptm_pos, ptm_AA) %>% 
+  mutate(count = n_distinct(source)) %>%
+  ungroup() %>% 
+  filter(count == 1|(count > 1 & source == "MPXV")) %>% 
+  group_by(gene_name, ptm_pos, ptm_AA, source, time) %>% 
+  arrange(desc(ptm_locprob_max), pms_p_value_min) %>% #when there are several multiplicities, select the best identified stats
+  slice_head() %>% 
+  select(-count)
+
+write_tsv(viral_phospho4paper.df,
+          file.path(analysis_path, "reports", "sup_tables", paste0("Supplementary table X_2 Phosphoproteome of HFF cells infected with MPXV.txt")))
+
+  

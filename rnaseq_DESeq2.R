@@ -570,3 +570,25 @@ save(DESeq_contrasts.df, DESeq_ashr_contrasts.df, DESeq_conditions.df,
      rnaseq_genes2protacs.df,
      file = file.path(results_path, str_c(project_id, '_DESeq2_data_', analysis_version, '_julia.RData')))
 
+#supplementary table of the transcriptome analysis ----
+contrast.df <- read_tsv(file.path(analysis_path, "reports", paste0(project_id, '_DESeq2_treatment_vs_treatment_long_', analysis_version, '.txt')))
+
+contrast4paper.df <- contrast.df %>% 
+  select(gene_name = GeneID, is_hit, change, fold_change_log2 = log2FoldChange, p_value = pvalue, p_value_adj = padj, time = timepoint_lhs) %>% 
+  mutate(time = paste0(time, "h"),
+         time = factor(time, levels = c("6h", "12h", "24h")),
+         change = ifelse(is_hit, change, "."))
+
+pivoted <- pivot_wider(contrast4paper.df, gene_name,
+                       names_from = "time", values_from = c("is_hit", "change",  "fold_change_log2", "p_value", "p_value_adj"),
+                       names_sep=".")
+
+names_to_order <- map(unique(contrast4paper.df$time), ~ names(pivoted)[grep(paste0(".", .x), names(pivoted))]) %>% unlist
+names_id <- setdiff(names(pivoted), names_to_order)
+
+object_contrast_4paper.df <- pivoted %>% 
+  select(names_id, names_to_order) %>% 
+  arrange(gene_name)
+
+write_tsv(object_contrast_4paper.df,
+          file.path(analysis_path, "reports", "sup_tables", paste0("Supplementary table X Transcriptome of HFF cells infected with MPXV.txt")))

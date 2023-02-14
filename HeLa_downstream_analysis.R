@@ -168,3 +168,20 @@ View(combined.df %>% filter(ci_target == "average", !is_viral_ivip, ! is_viral_m
                             is_hit.VACV_WR_24h_VS_mock_24h, is_hit.CVA_152_24h_VS_mock_24h, is_hit.MVA_F_24h_VS_mock_24h,
                             change.MVA_F_24h_VS_mock_24h == change.VACV_WR_24h_VS_mock_24h,
                             change.VACV_WR_24h_VS_mock_24h == change.CVA_152_24h_VS_mock_24h))
+
+#supplementary table of the enrichment analysis----
+enrichment.df <- read_tsv(file.path(analysis_path, "reports", "mpxv_HeLa24h_united_hit_covers_20221205.txt"))
+
+enrichment4paper.df <- enrichment.df %>% 
+  filter(str_detect(coll_id, "GO|Reactome")) %>% 
+  separate(treatment_lhs, into = c("front", "back")) %>% 
+  replace_na(list(back = "empty")) %>% 
+  mutate(virus = ifelse(back == "dE9L", paste0(front, "dE3L"), front),
+         virus = factor(virus, levels = c("MPXV", "VACV", "CVA", "MVA", "MVAdE3L")),
+         intersect_genes = str_remove_all(intersect_genes, fixed("..."))) %>% 
+  select(virus, change, term_collection, term_id, term_name, term_description = term_descr,
+         set_overlap_log10pvalue, set_overlap_pvalue, n_overlap = nmasked, n_dataset = nhit, n_non_overlapping_term = nunmasked, genes_overlap = intersect_genes) %>% 
+  arrange(term_collection, term_id, virus, change)
+
+write_tsv(enrichment4paper.df,
+          file.path(analysis_path, "reports", "sup_tables", paste0("Supplementary table X Biological functions and pathways enriched in HeLa cells infected by poxviruses.txt")))

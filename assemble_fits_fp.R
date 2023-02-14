@@ -246,4 +246,29 @@ write_tsv(#object_contrasts_long_report.df,
   fp_rnaseq_combi_long.df,
           file.path(analysis_path, "reports", paste0(project_id, '_', mstype, '_contrasts_report_', fit_version, '_long.txt')))
 
+#make supplementary table for publication ----
+load(rfit_filepath)
+
+object_contrast_average.df <- object_contrasts.df %>% 
+  filter(ci_target == "average",
+         treatment_rhs == "mock") %>% 
+  mutate(time = paste0(timepoint_lhs, "h"),
+         time = factor(time, levels = c("6h", "12h", "24h")),
+         change = ifelse(is_hit, change, ".")) %>% 
+  arrange(time)
+
+pivoted <- pivot_wider(object_contrast_average.df, object_id,
+                       names_from = "time", values_from = c("is_hit", "change",  "median", "p_value", "sd"),
+                       names_sep=".")
+
+names_to_order <- map(unique(object_contrast_average.df$time), ~ names(pivoted)[grep(paste0(".", .x), names(pivoted))]) %>% unlist
+names_id <- setdiff(names(pivoted), names_to_order)
+
+object_contrast_4paper.df <- objects4report.df %>% 
+  left_join(pivoted %>% select(names_id, names_to_order)) %>% 
+  arrange(object_id)
+
+write_tsv(object_contrast_4paper.df,
+          file.path(analysis_path, "reports", "sup_tables", paste0("Supplementary table X Total proteome of HFF cells infected with MPXV.txt")))
+
 
