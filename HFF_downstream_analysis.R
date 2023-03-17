@@ -473,11 +473,65 @@ ggraph(net.tidy, layout = "grid") +
   labs(edge_width = "log2(enrichment)") +
   theme_graph(base_family="sans")
 
+#plot a dotplot for the MAPKs----
+MAPK_dotplot.df <- MAPK_sites_by_viral_protein.df %>% 
+  select(gene_name, kinase_gene_name, MAPK_group, score_log2, site_percentile) 
+
+MAPK_wide.df <- MAPK_dotplot.df %>% 
+  select(-c(site_percentile, MAPK_group)) %>% 
+  group_by(gene_name, kinase_gene_name) %>% 
+  slice_max(score_log2) %>% 
+  ungroup() %>% 
+  pivot_wider(names_from = gene_name, values_from = score_log2) %>% 
+  column_to_rownames(var="kinase_gene_name")
+
+MAPK_wide.df[is.na(MAPK_wide.df)] <- 0
+d <- dist(scale(MAPK_wide.df), method = "euclidean")
+hc1 <- hclust(d, method = "complete" )
+plot(hc1, cex = 0.6, hang = -1)
+hc1$labels[hc1$order]
+
+d2 <- dist(scale(t(MAPK_wide.df)), method = "euclidean")
+hc2 <- hclust(d2, method = "complete" )
+plot(hc2, cex = 0.6, hang = -1)
+
+MAPK_dotpot_ordered.df <- MAPK_dotplot.df %>% 
+  mutate(kinase_gene_name = factor(kinase_gene_name, levels = hc1$labels[hc1$order]),
+         gene_name = factor(gene_name, levels = hc2$labels[hc2$order]))
+         
+(dot_plot <- ggplot(MAPK_dotpot_ordered.df, aes(x = gene_name, y = kinase_gene_name, size = score_log2, colour = site_percentile))+
+  geom_point()+
+  scale_colour_distiller(palette = "YlOrRd", direction = 1)+
+  theme_classic()+
+  theme(axis.line  = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  labs(x= "", y = ""))
+
+(MAPK_label <- ggplot(MAPK_dotpot_ordered.df, 
+       aes(x = 1, y = kinase_gene_name, fill = factor(MAPK_group, levels = c("4", "3", "2", "1")))) + 
+  geom_tile() + 
+  scale_fill_brewer(palette = 'Pastel2')+
+  theme_minimal())
+(total_MAPK <- ggplot(MAPK_dotpot_ordered.df, aes(x = gene_name))+
+    geom_bar()+
+    theme_classic()
+    )
+
+ggsave(dot_plot, filename = file.path(analysis_path, "plots", "hff_downstream", paste0("MAPK_viral_sites_", analysis_version, ".pdf")),
+       width = 8, height = 8)
+
+ggsave(MAPK_label, filename = file.path(analysis_path, "plots", "hff_downstream", paste0("MAPK_viral_sites_label_", analysis_version, ".pdf")),
+       width = 5, height = 8)
+
+ggsave(total_MAPK, filename = file.path(analysis_path, "plots", "hff_downstream", paste0("MAPK_viral_sites_count_", analysis_version, ".pdf")),
+       width = 8, height = 5)
+
 #tidy up the drug enrichment hits from Valter----
-drug_targets_wide.df <- read_tsv(file.path(analysis_path, "reports", "downstream_analysis", paste0("drug_targets_from_Valter_20230213.txt")))
+drug_targets_wide.df <- read_tsv(file.path(analysis_path, "reports", "downstream_analysis", paste0("drug_targets_from_Valter_20230306b.txt")))
 
 drug_targets_long.df <- drug_targets_wide.df %>% 
-  rename(gene_name = node_name) %>% 
+  rename(gene_name = node_1_name) %>% 
   mutate(protein_id = 1:nrow(.)) %>% 
   left_join(uniprot_gene2id %>% select(gene_name, protein_ac = Entry, rank)) %>% 
   group_by(gene_name) %>% 
@@ -490,5 +544,5 @@ drug_targets_long.df <- drug_targets_wide.df %>%
   select(-original_gene_name, -rank) %>% 
   pivot_longer(-c(protein_id, gene_name, protein_ac), names_to = "comparison", values_to = "is_hit")
 
-write_tsv(drug_targets_long.df, file.path(analysis_path, "reports", "downstream_analysis", paste0("drug_targets_from_Valter_long_20230213.txt")))
+write_tsv(drug_targets_long.df, file.path(analysis_path, "reports", "downstream_analysis", paste0("drug_targets_from_Valter_long_20230306b.txt")))
   
