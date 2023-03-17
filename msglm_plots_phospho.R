@@ -515,6 +515,8 @@ ggplot(test.df, aes(x = n_quanted, fill = timepoint))+
 # timecourse for the paper ---- 
 sel_objects.df <- dplyr::filter(modelobjs_df, is_viral)
 sel_objects.df <- dplyr::filter(modelobjs_df, str_detect(object_label, str_c(c("Phospho_CTNNB1_S552_M1", "Phospho_MAPK14_Y182_M2"), collapse = "|")))
+sel_objects.df <- dplyr::filter(modelobjs_df, str_detect(object_label, str_c(c("Phospho_YAP1_S109_M1", "Phospho_HSPA1A_T636_M1", "Phospho_LMNA_S392_M1"), collapse = "|")))
+sel_objects.df <- dplyr::filter(modelobjs_df, str_detect(object_label, str_c(c("Phospho_DIAPH1_S22_M1", "Phospho_ARHGAP17_S575_M1", "Phospho_RACK1_S276_M1" ), collapse = "|")))
 
 dplyr::left_join(sel_objects.df, dplyr::select(msdata_full$ptmngroup_idents, ptmngroup_id, n_pepmodstates)) %>% unique() %>% 
   dplyr::group_by(object_id) %>% slice_max(order_by = n_pepmodstates) %>% 
@@ -586,7 +588,7 @@ dplyr::left_join(sel_objects.df, dplyr::select(msdata_full$ptmngroup_idents, ptm
                     alpha=0.5, stat = "identity", size=0.5) +
         geom_path(aes(x = timepoint_num, y = median), alpha=0.5, size=1, stat="identity") +
         geom_text(data = sel_obj_contrasts.df, aes(x = timepoint, y = y.position, label = p_label), colour = "black")+
-        theme_bw_ast(base_family = "", base_size = 12) +
+        theme_classic(base_family = "", base_size = 12) +
         scale_x_continuous("Time, h.p.i.", breaks=unique(msdata$msruns$timepoint_num), minor_breaks = NULL,
                            labels=scales::label_number(accuracy = 1)) +
         scale_color_manual("Treatment", values=treatment_palette, guide = "none") +
@@ -609,7 +611,7 @@ dplyr::left_join(sel_objects.df, dplyr::select(msdata_full$ptmngroup_idents, ptm
             geom_ribbon(aes(x = timepoint_num, ymin = q25, ymax=q75),
                         alpha=0.5, stat = "identity", size=0.5) +
             geom_path(aes(x = timepoint_num, y = median), alpha=0.5, size=1, stat="identity") +
-            theme_bw_ast(base_family = "", base_size = 12) +
+            theme_classic(base_family = "", base_size = 12) +
             scale_x_continuous("Time, h.p.i.", breaks=unique(msdata_full$msruns$timepoint_num),
                                minor_breaks = NULL, labels=scales::label_number(accuracy = 1)) +
             scale_color_manual(values=fp_treatment_palette, guide = "none") +
