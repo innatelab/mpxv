@@ -6,7 +6,7 @@
 #---
 proj_info = (id = "mpxv",
              modelobj = "protein",
-             analysis_ver = "20230213")
+             analysis_ver = "20230306b")
 
 const base_scripts_path = "/home/ge54heq/projects"
 const base_analysis_path = "/pool/analysis/yhuang"
@@ -36,7 +36,7 @@ includet(joinpath(misc_scripts_path, "msglm_utils.jl"));
 objid_col = Symbol("protein_id")
 
 #---
-import_rdata = false
+import_rdata = true
 if import_rdata
 
 @info "Loading $(joinpath(reports_path, "downstream_analysis", "drug_targets_from_Valter_long_$(proj_info.analysis_ver)")).txt..."
